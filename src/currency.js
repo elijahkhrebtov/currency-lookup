@@ -23,6 +23,12 @@ export function normalizeAmount(value) {
   return /^-?\d{0,15}(\.\d{0,8})?$/.test(normalized) ? normalized : null
 }
 
+export function groupAmount(value) {
+  const [integer, fraction] = value.split('.')
+  const grouped = integer.replace(/\B(?=(\d{3})+(?!\d))/g, '\u202f')
+  return fraction === undefined ? grouped : `${grouped}.${fraction}`
+}
+
 export function loadSettings() {
   const saved = readStorage(SETTINGS_KEY)
   if (!saved || !Array.isArray(saved.currencies) || saved.currencies.length < 1 ||

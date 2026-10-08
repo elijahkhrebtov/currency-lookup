@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import { convert, currencyName, formatAmount, formatDate, loadSettings, normalizeAmount, SETTINGS_KEY, writeStorage } from './currency'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { convert, currencyName, formatAmount, formatDate, groupAmount, loadSettings, normalizeAmount, SETTINGS_KEY, writeStorage } from './currency'
 import { useRates } from './useRates'
 import './App.css'
 
@@ -18,6 +18,18 @@ function Icon({ name, size = 20, ...props }) {
 }
 
 const symbols = { USD: '$', EUR: '€', GBP: '£', JPY: '¥', UZS: 'soʻm', AUD: 'A$', CAD: 'C$', CHF: 'Fr', CNY: '¥', INR: '₹', KRW: '₩', RUB: '₽', TRY: '₺', AED: 'د.إ' }
+
+function AmountInput({ currency, value, placeholder, onChange }) {
+  const [editing, setEditing] = useState(false)
+  const ref = useRef(null)
+  const displayValue = editing ? value : groupAmount(value)
+
+  useLayoutEffect(() => {
+    if (editing) ref.current.select()
+  }, [editing])
+
+  return <input ref={ref} className={`amount-input ${displayValue.length > 13 ? 'long-amount' : ''}`} aria-label={`${currency} amount`} type="text" inputMode="decimal" autoComplete="off" spellCheck="false" value={displayValue} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} onFocus={() => setEditing(true)} onBlur={() => setEditing(false)} />
+}
 
 function Modal({ children, title, onClose, className = '' }) {
   const ref = useRef(null)
@@ -147,7 +159,7 @@ function App() {
                 </div>
               </div>
               <div className="amount-line">
-                <input className={`amount-input ${value.length > 13 ? 'long-amount' : ''}`} aria-label={`${code} amount`} type="text" inputMode="decimal" autoComplete="off" spellCheck="false" value={value} placeholder={isSource ? '0' : loading && !data ? '…' : unitRate === null ? '—' : '0'} onChange={(event) => edit(code, event.target.value)} onFocus={(event) => event.target.select()} />
+                <AmountInput currency={code} value={value} placeholder={isSource ? '0' : loading && !data ? '…' : unitRate === null ? '—' : '0'} onChange={(nextAmount) => edit(code, nextAmount)} />
               </div>
               <div className="card-bottom"><span>{currencyName(code)}</span><span>{isSource ? 'Editing this converts the rest' : unitRate === null ? 'Rate unavailable' : `1 ${source} = ${new Intl.NumberFormat('en', { maximumFractionDigits: 6 }).format(unitRate)} ${code}`}</span></div>
             </article>
