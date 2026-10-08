@@ -1,0 +1,188 @@
+import { test, expect } from '@playwright/test'
+
+const API = 'https://api.frankfurter.dev/v2/rates?base=USD'
+const SETTINGS_KEY = 'pocket-currency.settings.v1'
+const RATES_KEY = 'pocket-currency.rates.v1'
+const rates = { EUR: 0.9, GBP: 0.75, JPY: 150, UZS: 12500, CAD: 1.4, AED: 3.67 }
+const rows = Object.entries(rates).map(([quote, rate]) => ({ quote, rate, base: 'USD', date: '2026-10-08' }))
+
+async function mockRates(page) {
+  await page.route(API, (route) => route.fulfill({ json: rows }))
+}
+
+test('editing any row switches the source and calculates cross rates without another request', async ({ page }) => {
+  let requests = 0
+  await page.route(API, (route) => { requests++; return route.fulfill({ json: rows }) })
+  await page.goto('/')
+  await expect(page.getByLabel('EUR amount')).toHaveValue('90.00')
+  await expect(page.getByLabel('UZS amount')).toHaveValue('1250000.00')
+  await page.getByLabel('GBP amount').focus()
+  await expect(page.locator('.is-source')).toContainText('USD')
+  await page.getByLabel('GBP amount').fill('75')
+  await expect(page.locator('.is-source')).toContainText('GBP')
+  await expect(page.getByLabel('USD amount')).toHaveValue('100.00')
+  await expect(page.getByLabel('EUR amount')).toHaveValue('90.00')
+  await page.getByLabel('JPY amount').fill('300')
+  await expect(page.getByLabel('USD amount')).toHaveValue('2.00')
+  expect(requests).toBe(1)
+})
+
+test('handles zero, empty input, decimal commas, partial decimals and invalid input', async ({ page }) => {
+  await mockRates(page)
+  await page.goto('/')
+  await expect(page.getByLabel('EUR amount')).toHaveValue('90.00')
+  await page.getByLabel('USD amount').fill('0')
+  await expect(page.getByLabel('EUR amount')).toHaveValue('0.00')
+  await page.getByLabel('USD amount').fill('')
+  await expect(page.getByLabel('EUR amount')).toHaveValue('')
+  await page.getByLabel('USD amount').fill('12,5')
+  await expect(page.getByLabel('USD amount')).toHaveValue('12.5')
+  await expect(page.getByLabel('EUR amount')).toHaveValue('11.25')
+  await page.getByLabel('USD amount').fill('12.')
+  await expect(page.getByLabel('USD amount')).toHaveValue('12.')
+  await page.getByLabel('USD amount').fill('not a number')
+  await expect(page.getByLabel('USD amount')).toHaveValue('12.')
+  await page.getByLabel('USD amount').fill('-10')
+  await expect(page.getByLabel('EUR amount')).toHaveValue('-9.00')
+  await page.getByLabel('USD amount').fill('0.001')
+  await expect(page.getByLabel('EUR amount')).toHaveValue('0.0009')
+})
+
+test('currencies can be changed, removed and added; settings persist on reopening', async ({ page }) => {
+  await mockRates(page)
+  await page.goto('/')
+  await expect(page.getByLabel('Change EUR currency')).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Add currency' })).toHaveCount(0)
+  await page.getByLabel('Change EUR currency').click()
+  await page.getByLabel('Search currencies').fill('Canadian')
+  await page.getByRole('button', { name: /CAD Canadian Dollar/ }).click()
+  await expect(page.getByLabel('CAD amount')).toHaveValue('140.00')
+  await page.getByLabel('CAD amount').fill('70')
+  await page.getByLabel('Remove JPY').click()
+  await page.getByRole('button', { name: 'Add currency' }).click()
+  await page.getByLabel('Search currencies').fill('USD')
+  await expect(page.getByRole('button', { name: /USD US Dollar Added/ })).toBeDisabled()
+  await page.getByLabel('Search currencies').fill('AED')
+  await page.getByRole('button', { name: /AED United Arab Emirates Dirham/ }).click()
+  await page.reload()
+  await expect(page.getByLabel('CAD amount')).toHaveValue('70')
+  await expect(page.locator('.is-source')).toContainText('CAD')
+  await expect(page.getByLabel('AED amount')).toHaveValue('183.50')
+  await expect(page.locator('.currency-card')).toHaveCount(5)
+  await expect(page.getByLabel('JPY amount')).toHaveCount(0)
+})
+
+test('changing the source currency retains its amount; deleting it selects a remaining row', async ({ page }) => {
+  await mockRates(page)
+  await page.goto('/')
+  await expect(page.getByLabel('Change USD currency')).toBeEnabled()
+  await page.getByLabel('Change USD currency').click()
+  await page.getByLabel('Search currencies').fill('CAD')
+  await page.getByRole('button', { name: /CAD Canadian Dollar/ }).click()
+  await expect(page.getByLabel('CAD amount')).toHaveValue('100')
+  await page.getByLabel('CAD amount').fill('140')
+  await page.getByLabel('Remove CAD').click()
+  await expect(page.locator('.is-source')).toContainText('EUR')
+  await expect(page.getByLabel('EUR amount')).toHaveValue('90.00')
+  await expect(page.getByLabel('GBP amount')).toHaveValue('75.00')
+  for (const code of ['GBP', 'JPY', 'UZS']) await page.getByLabel(`Remove ${code}`).click()
+  await expect(page.locator('.currency-card')).toHaveCount(1)
+  await expect(page.getByRole('button', { name: /Remove/ })).toHaveCount(0)
+})
+
+test('fresh cached rates are reused and manual refresh retrieves new rates', async ({ page }) => {
+  let requests = 0
+  await page.route(API, (route) => {
+    requests++
+    return route.fulfill({ json: rows.map((row) => ({ ...row, rate: row.rate * requests })) })
+  })
+  await page.goto('/')
+  await expect(page.getByLabel('EUR amount')).toHaveValue('90.00')
+  await page.reload()
+  await expect(page.getByLabel('EUR amount')).toHaveValue('90.00')
+  expect(requests).toBe(1)
+  await page.getByLabel('Refresh exchange rates').click()
+  await expect(page.getByLabel('EUR amount')).toHaveValue('180.00')
+  expect(requests).toBe(2)
+})
+
+test('expired cache remains usable after a failed refresh and can recover', async ({ page }) => {
+  await page.addInitScript(({ key, rates }) => {
+    localStorage.setItem(key, JSON.stringify({
+      rates: { USD: 1, ...rates },
+      dates: Object.fromEntries(Object.keys(rates).map((code) => [code, '2026-10-07'])),
+      fetchedAt: Date.now() - 25 * 60 * 60 * 1000,
+    }))
+  }, { key: RATES_KEY, rates })
+  await page.route(API, (route) => route.fulfill({ status: 503 }))
+  await page.goto('/')
+  await expect(page.getByRole('alert')).toContainText('Using saved rates')
+  await page.getByLabel('EUR amount').fill('9')
+  await expect(page.getByLabel('USD amount')).toHaveValue('10.00')
+  await page.unroute(API)
+  await mockRates(page)
+  await page.getByLabel('Refresh exchange rates').click()
+  await expect(page.getByRole('status')).toHaveText('Rates up to date')
+  await expect(page.getByRole('alert')).toHaveCount(0)
+})
+
+test('first-load failure gives a retry and corrupt settings fall back safely', async ({ page }) => {
+  await page.addInitScript(({ settings, cache }) => {
+    localStorage.setItem(settings, '{broken')
+    localStorage.setItem(cache, JSON.stringify({ rates: { USD: 1, EUR: -3 }, fetchedAt: 'invalid' }))
+  }, { settings: SETTINGS_KEY, cache: RATES_KEY })
+  await page.route(API, (route) => route.fulfill({ json: { invalid: true } }))
+  await page.goto('/')
+  await expect(page.getByRole('alert')).toContainText('Couldn’t refresh rates')
+  await expect(page.getByLabel('USD amount')).toHaveValue('100')
+  await expect(page.getByLabel('EUR amount')).toHaveValue('')
+  await page.unroute(API)
+  await mockRates(page)
+  await page.getByLabel('Refresh exchange rates').click()
+  await expect(page.getByLabel('EUR amount')).toHaveValue('90.00')
+})
+
+test('picker has keyboard focus, closes with Escape, and layout fits a narrow phone', async ({ page }) => {
+  await mockRates(page)
+  await page.setViewportSize({ width: 320, height: 700 })
+  await page.goto('/')
+  await expect(page.getByLabel('Change EUR currency')).toBeEnabled()
+  await page.getByLabel('Change EUR currency').click()
+  await expect(page.getByLabel('Search currencies')).toBeFocused()
+  await page.getByLabel('Search currencies').fill('zzzz')
+  await expect(page.getByText('No currencies found.', { exact: false })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.getByLabel('Change EUR currency')).toBeFocused()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+})
+
+test('production PWA has a valid manifest and boots offline with saved choices', async ({ page, context }) => {
+  await mockRates(page)
+  await page.goto('/')
+  await expect(page.getByLabel('EUR amount')).toHaveValue('90.00')
+  await page.evaluate(async () => {
+    await navigator.serviceWorker.ready
+    if (!navigator.serviceWorker.controller) await new Promise((resolve) => {
+      navigator.serviceWorker.addEventListener('controllerchange', resolve, { once: true })
+    })
+  })
+  const manifest = await page.evaluate(async () => (await fetch(document.querySelector('link[rel="manifest"]').href)).json())
+  expect(manifest.display).toBe('standalone')
+  expect(manifest.icons.map((icon) => icon.sizes)).toEqual(expect.arrayContaining(['192x192', '512x512']))
+  expect(manifest.icons.some((icon) => icon.purpose === 'maskable')).toBe(true)
+  const cdp = await context.newCDPSession(page)
+  const { installabilityErrors } = await cdp.send('Page.getInstallabilityErrors')
+  expect(installabilityErrors).toEqual([])
+  await cdp.detach()
+  await page.getByLabel('GBP amount').fill('150')
+  await page.unroute(API)
+  await context.setOffline(true)
+  await page.reload()
+  await expect(page.getByRole('status')).toHaveText('Offline')
+  await expect(page.getByLabel('GBP amount')).toHaveValue('150')
+  await expect(page.getByLabel('EUR amount')).toHaveValue('180.00')
+  await page.getByLabel('USD amount').fill('10')
+  await expect(page.getByLabel('EUR amount')).toHaveValue('9.00')
+  await expect(page.getByLabel('Refresh exchange rates')).toBeDisabled()
+})
