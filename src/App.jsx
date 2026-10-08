@@ -129,12 +129,6 @@ function App() {
     </header>
 
     <main>
-      <section className="intro" aria-labelledby="page-title">
-        <div className="eyebrow"><span /> A LITTLE CLARITY, IN ANY CURRENCY</div>
-        <h1 id="page-title">Money, translated.</h1>
-        <p>One amount. A world of possibilities.</p>
-      </section>
-
       <section className="converter" aria-label="Currency converter">
         <div className="section-label"><span>YOUR CURRENCIES</span><span>{currencies.length} <span className="muted">/ 5</span></span></div>
         <div className="currency-stack">
@@ -172,7 +166,7 @@ function App() {
       </section>
     </main>
 
-    <footer><span>Small tool. Fewer mental calculations.</span><span>Daily rates by <a href="https://frankfurter.dev/" target="_blank" rel="noreferrer">Frankfurter ↗</a></span></footer>
+    <footer><span>Daily rates by <a href="https://frankfurter.dev/" target="_blank" rel="noreferrer">Frankfurter ↗</a></span></footer>
     {picker && <CurrencyPicker key={picker} current={picker === 'add' ? null : picker} currencies={currencies} available={available} onSelect={selectCurrency} onClose={() => setPicker(null)} />}
     {installHelp && <Modal title="Pocket, on your home screen" onClose={() => setInstallHelp(false)}>
       <div className="install-help"><span className="install-art"><Icon name="arrows" size={36} /></span><p>Your currencies, always a tap away. Saved rates let you convert offline, too.</p><ol><li>Open this site in <strong>Chrome on Android</strong>.</li><li>Tap the <strong>⋮ menu</strong> in your browser.</li><li>Choose <strong>Add to home screen</strong>, then <strong>Install</strong>.</li></ol><p className="muted">If Install isn’t available yet, try again after the page has finished loading.</p></div>

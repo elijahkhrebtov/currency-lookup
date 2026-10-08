@@ -1,7 +1,7 @@
 import { chromium } from '@playwright/test'
 import { mkdir, writeFile } from 'node:fs/promises'
 
-const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="#21291c"/><g fill="none" stroke="#c2e993" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M19 24h26l-8-8m8 8-8 8M45 40H19l8-8m-8 8 8 8"/></g></svg>'
+const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="#1c2b43"/><g fill="none" stroke="#93baff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M19 24h26l-8-8m8 8-8 8M45 40H19l8-8m-8 8 8 8"/></g></svg>'
 await mkdir('public/icons', { recursive: true })
 await writeFile('public/favicon.svg', svg)
 const browser = await chromium.launch()
