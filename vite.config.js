@@ -9,9 +9,9 @@ export default defineConfig({
     includeAssets: ['favicon.svg', 'icons/*.png'],
     manifest: {
       id: '/',
-      name: 'Pocket — Currency Converter',
+      name: 'Pocket — Converter & Budget',
       short_name: 'Pocket',
-      description: 'Your currencies, one amount. A quick currency converter that works offline.',
+      description: 'Currency conversion and budget planning, available offline.',
       theme_color: '#0e131d',
       background_color: '#0e131d',
       display: 'standalone',
