@@ -152,7 +152,9 @@ test('opens today, adds for the selected day, edits, disables, deletes and remem
   await dialog.getByRole('button', { name: 'Save', exact: true }).click()
   await page.getByRole('button', { name: 'Oct 13, 2026', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Edit Lunch', exact: true })).toContainText('Σ −30.50')
-  await page.getByLabel('Include Lunch in calculations').uncheck()
+  // Inclusion is persisted before the controlled checkbox updates.
+  await page.getByLabel('Include Lunch in calculations').click()
+  await expect(page.getByLabel('Include Lunch in calculations')).not.toBeChecked()
   await expect(page.locator('.budget-summary dd').last()).toHaveText('0.00')
   await expect(page.getByRole('button', { name: 'Edit Lunch', exact: true })).toContainText('Σ −30.50')
   await page.reload()

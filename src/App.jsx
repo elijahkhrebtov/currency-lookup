@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { convert, currencyName, formatAmount, formatDate, groupAmount, loadSettings, normalizeAmount, SETTINGS_KEY, writeStorage } from './currency'
+import { convert, currencyName, formatAmount, groupAmount, loadSettings, normalizeAmount, SETTINGS_KEY, writeStorage } from './currency'
 import { useRates } from './useRates'
 import { Icon, Modal } from './ui'
 import Budget from './budget/Budget'
@@ -32,7 +32,6 @@ function CurrencyPicker({ current, currencies, available, onSelect, onClose }) {
       </button>)}
       {!filtered.length && <p className="no-results">No currencies found. Try a different name or code.</p>}
     </div>
-    <div className="picker-footer">{available.length} currencies · Rates from Frankfurter</div>
   </Modal>
 }
 
@@ -47,7 +46,7 @@ function App() {
   const [picker, setPicker] = useState(null)
   const [installPrompt, setInstallPrompt] = useState(null)
   const [installHelp, setInstallHelp] = useState(false)
-  const [installed, setInstalled] = useState(() => window.matchMedia('(display-mode: standalone)').matches)
+  const [installed, setInstalled] = useState(() => window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true)
   const available = data ? Object.keys(data.rates).sort() : []
 
   useEffect(() => {
@@ -103,15 +102,12 @@ function App() {
     setSettings({ currencies: remaining, source: nextSource, amount: nextAmount })
   }
 
-  const dates = currencies.map((code) => data?.dates[code]).filter(Boolean).sort()
-  const rateStatus = !online ? 'Offline' : loading ? 'Updating rates' : error ? 'Update failed' : stale ? 'Saved rates' : data ? 'Rates up to date' : 'Rates unavailable'
+  const savingFailed = storageError || rateStorageError
+  const rateStatus = !online ? 'Offline' : loading ? 'Updating rates' : error ? data ? 'Update failed · Saved rates' : 'Update failed' : savingFailed ? 'Storage unavailable' : stale ? 'Saved rates' : data ? 'Rates up to date' : 'Rates unavailable'
+  const statusError = !loading && online && (error || savingFailed)
+  const refreshedAt = data ? new Date(data.fetchedAt) : null
 
-  return <div className="app-shell">
-    <header className="app-header">
-      <a className="brand" href="./" aria-label="Pocket home"><span className="brand-mark"><Icon name="arrows" size={22} /></span>pocket<span className="brand-dot">.</span></a>
-      {!installed && <button className="install-button" onClick={install}><Icon name="download" size={16} /><span>Install app</span></button>}
-    </header>
-
+  return <div className={`app-shell ${installed ? '' : 'has-install'}`}>
     <main className={`page-content ${page}-page`}>
       {page === 'budget' ? <Budget /> : <>
         <section className="converter" aria-label="Currency converter">
@@ -139,26 +135,22 @@ function App() {
             })}
           </div>
           {currencies.length < 5 && <button className="add-button" disabled={!data} onClick={() => setPicker('add')}><Icon name="plus" size={18} /> Add currency <span>{currencies.length}/5</span></button>}
-          <p className="editing-hint"><Icon name="arrows" size={15} /> Edit any amount to make it your source.</p>
         </section>
 
         <section className="rates-panel" aria-label="Exchange rate status">
-          <div className="rate-status"><span className={`status-dot ${!online || error || stale ? 'is-warning' : ''}`} /><span role="status">{rateStatus}</span><button className={`icon-button refresh-button ${loading ? 'spinning' : ''}`} aria-label="Refresh exchange rates" disabled={loading || !online} onClick={() => refresh(true)}><Icon name="refresh" size={16} /></button></div>
-          <p>{data ? dates.length ? `Rate dates: ${formatDate(dates[0])}${dates[0] !== dates.at(-1) ? ` – ${formatDate(dates.at(-1))}` : ''}` : 'Rates refresh daily.' : 'Connect once to get the latest exchange rates.'}</p>
-          {error && online && <p className="error-message" role="alert">{error}{data ? ' Using saved rates.' : ''}</p>}
-          {!online && data && <p>Using saved rates. Conversions still work.</p>}
-          {(storageError || rateStorageError) && <p className="error-message" role="alert">Device storage is unavailable. Changes may not be saved.</p>}
+          <div className="rate-status"><span role={statusError ? 'alert' : 'status'} title={error || (savingFailed ? 'Changes may not be saved.' : undefined)}>{rateStatus}</span><button className={`icon-button refresh-button ${loading ? 'spinning' : ''}`} aria-label="Refresh exchange rates" disabled={loading || !online} onClick={() => refresh(true)}><Icon name="refresh" size={16} /></button></div>
+          {refreshedAt && Number.isFinite(refreshedAt.getTime()) && <time className="refresh-date" aria-label="Last refresh" dateTime={refreshedAt.toISOString()}>{refreshedAt.toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })}</time>}
         </section>
-        <footer><span>Daily rates by <a href="https://frankfurter.dev/" target="_blank" rel="noreferrer">Frankfurter ↗</a></span></footer>
       </>}
     </main>
     <nav className="bottom-nav" aria-label="Pages">
-      <button aria-current={page === 'converter' ? 'page' : undefined} onClick={() => selectPage('converter')}><Icon name="arrows" /><span>Converter</span></button>
-      <button aria-current={page === 'budget' ? 'page' : undefined} onClick={() => selectPage('budget')}><Icon name="calendar" /><span>Budget</span></button>
+      <button aria-current={page === 'converter' ? 'page' : undefined} onClick={() => selectPage('converter')}><Icon name="arrows" size={16} /><span>Converter</span></button>
+      <button aria-current={page === 'budget' ? 'page' : undefined} onClick={() => selectPage('budget')}><Icon name="calendar" size={16} /><span>Budget</span></button>
     </nav>
+    {!installed && <button className="install-button" onClick={install} aria-label="Install app" title="Install app"><Icon name="download" size={20} /></button>}
     {picker && <CurrencyPicker key={picker} current={picker === 'add' ? null : picker} currencies={currencies} available={available} onSelect={selectCurrency} onClose={() => setPicker(null)} />}
-    {installHelp && <Modal title="Pocket, on your home screen" onClose={() => setInstallHelp(false)}>
-      <div className="install-help"><span className="install-art"><Icon name="arrows" size={36} /></span><p>Your currencies, always a tap away. Saved rates let you convert offline, too.</p><ol><li>Open this site in <strong>Chrome on Android</strong>.</li><li>Tap the <strong>⋮ menu</strong> in your browser.</li><li>Choose <strong>Add to home screen</strong>, then <strong>Install</strong>.</li></ol><p className="muted">If Install isn’t available yet, try again after the page has finished loading.</p></div>
+    {installHelp && <Modal title="Install app" onClose={() => setInstallHelp(false)}>
+      <div className="install-help"><ol><li>Open this site in <strong>Chrome on Android</strong>.</li><li>Tap the <strong>⋮ menu</strong>.</li><li>Choose <strong>Add to home screen</strong>, then <strong>Install</strong>.</li></ol></div>
     </Modal>}
   </div>
 }

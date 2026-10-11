@@ -1,6 +1,6 @@
-# Pocket — Converter & Budget
+# Converter & Budget
 
-A dark, mobile-first PWA with a currency converter and budget planner. The bottom navigation switches pages and remembers the last page opened. Edit any currency amount to make it the source; all other rows update immediately. Search currencies by name or code, replace them, or add and remove rows.
+A dark, mobile-first personal PWA with a currency converter and budget planner. The compact bottom navigation switches pages and remembers the last page opened. There is no branding or page header. Installation is available from a floating button at the bottom right, hidden when installed. Edit any currency amount to make it the source; all other rows update immediately. Search currencies by name or code, replace them, or add and remove rows.
 
 The budget page combines a continuous scrollable calendar with an independently scrollable list and summary. Months connect in a single weekday grid, alternate background shades, and show the month name in each left-aligned date cell. It opens on the current local day, and its calendar runs through December 31 of the next year, advancing the horizon each year. The calendar begins in October 2026; budget-mini's original calculation baseline of September 28, 2026 is preserved for historical entries. No charts are included.
 
@@ -34,7 +34,7 @@ The PNG app icons are committed. To regenerate them, run `npm run icons` after i
 
 - Uses [Frankfurter v2](https://frankfurter.dev/), with no API key or backend. A single USD-based rate table supplies all cross-currency conversions: `amount / sourceRate * targetRate`.
 - Rates are saved in local storage for 24 hours. The app checks on launch, when returning to the app, on reconnect, and hourly while open. The refresh button bypasses that interval.
-- Cached rates remain usable if the API is unavailable. The app shows offline/error status and the actual date range of the selected rates, which can differ by currency and on weekends. These are reference rates, not bank transaction quotes.
+- Cached rates remain usable if the API is unavailable. The converter footer contains only rate status, a refresh button, and the date and time of the last successful refresh in the device's local time. Failed refreshes keep the previous timestamp. The rate provider's dates can differ by currency and on weekends; the displayed timestamp records when this app fetched them. These are reference rates, not bank transaction quotes.
 - Currency order, source currency, and last entered amount persist in local storage. Clearing site data removes them. If storage is blocked or full, the app reports that saving failed.
 - The first visit requires a connection to load rates. After a successful visit, the service worker caches the entire application, including its fonts, for offline use.
 - Calculations use the unrounded source amount and cached rates; only displayed results are rounded. Amounts use narrow spaces to separate thousands (for example, `1 234 567.89`). Focusing a field removes those separators for editing, and pasting an amount with space separators also works. Amounts accept a decimal point or comma, up to 15 integer digits and 8 decimal places, with optional negatives. A comma is a decimal separator, not a thousands separator.

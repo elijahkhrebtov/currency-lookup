@@ -86,7 +86,7 @@ export default function Budget() {
         <span className="switch-track" aria-hidden="true" />
         <span>Through {formatShort(selectedDate)}</span>
       </label>
-      <button className="new-entry-button" aria-label="New entry" disabled={!loaded || busy} onClick={() => { setError(''); setSheet({ entry: null, date: selectedDate, open: true }) }}><Icon name="plus" /></button>
+      <button className="new-entry-button" aria-label="New entry" disabled={!loaded || busy} onClick={() => { setError(''); setSheet({ entry: null, date: selectedDate, open: true }) }}><Icon name="plus" size={18} /></button>
     </div>
     <section className="budget-entries" aria-label="Entries" tabIndex={0}>
       <div className="entries-heading">
