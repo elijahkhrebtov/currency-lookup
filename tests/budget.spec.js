@@ -1,7 +1,8 @@
 import { test, expect } from '@playwright/test'
-import { appliesOn, calculateBudget, calendarDays, calendarRange, localToday, monthsInRange } from '../src/budget/model'
+import { adjustmentValues, appliesOn, balanceLevel, calculateBudget, calendarDays, calendarMoney, calendarRange, localToday, monthsInRange } from '../src/budget/model'
 
 const TODAY = '2026-10-11'
+const SAVINGS_THRESHOLD_KEY = 'budget.savings-threshold.v1'
 const entry = (id, overrides = {}) => ({ id, description: id, date: TODAY, amountCents: 10000, kind: 'expense', recurrence: 'once', createdAt: 1, ...overrides })
 
 async function openBudget(page) {
@@ -169,6 +170,100 @@ test('opens today, adds for the selected day, edits, disables, deletes and remem
   await expect(page.getByLabel('USD amount')).toBeVisible()
 })
 
+test('adjustments reconcile the selected day, stay fixed, and can only be deleted', async ({ page }) => {
+  await openBudget(page)
+  await importEntries(page, [
+    entry('Opening', { kind: 'income', date: '2026-09-28', amountCents: 100000 }),
+    entry('Daily', { date: TODAY, recurrence: 'daily', amountCents: 1000 }),
+    entry('Selected day', { date: '2026-10-12', amountCents: 3000 }),
+    entry('Excluded', { date: '2026-10-12', disabled: true, amountCents: 99999 }),
+    entry('Future', { date: '2026-10-13', kind: 'income', amountCents: 100000 }),
+  ])
+  await expect(page.locator('.budget-entry-list li')).toHaveCount(5)
+  await page.getByRole('button', { name: 'Oct 12, 2026', exact: true }).click()
+  await page.getByRole('switch').check()
+  const net = page.locator('.budget-summary dd').last()
+  await expect(net).toHaveText('+950.00')
+  const adjustmentName = 'Adjustment on Oct 12, 2026'
+  for (const [actual, delta, expectedNet] of [
+    ['1000.25', '+50.25', '+1,000.25'],
+    ['900.50', '−99.75', '+900.50'],
+    ['0', '−900.50', '0.00'],
+    ['-25.75', '−25.75', '−25.75'],
+    ['-25.75', '0.00', '−25.75'],
+  ]) {
+    await page.getByRole('button', { name: 'New entry', exact: true }).click()
+    const dialog = page.getByRole('dialog')
+    // Hidden recurring/date state must not affect an adjustment.
+    await dialog.getByLabel('Repeats').selectOption('daily')
+    await dialog.getByLabel('Start date').fill('2026-10-20')
+    await dialog.getByRole('button', { name: 'Adjustment', exact: true }).click()
+    await expect(dialog.locator('input, select')).toHaveCount(1)
+    await dialog.getByLabel('Actual balance').fill(actual)
+    await dialog.getByRole('button', { name: 'Add', exact: true }).click()
+    await expect(dialog).toHaveCount(0)
+    const row = page.locator('.budget-entry-list li').filter({ has: page.locator('.adjustment-body') }).last()
+    await expect(row.locator('.entry-description')).toHaveText(adjustmentName)
+    await expect(row.locator('.entry-amount')).toHaveText(delta)
+    await expect(row).toHaveClass(/highlight/)
+    await expect(row.locator('input')).toHaveCount(0)
+    await expect(row.getByRole('button')).toHaveCount(1)
+    await row.locator('.entry-body').click()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect(net).toHaveText(expectedNet)
+  }
+  await page.getByRole('button', { name: 'Oct 13, 2026', exact: true }).click()
+  await expect(net).toHaveText('+964.25')
+  await expect(page.locator('.budget-entry-list li.highlight .adjustment-body')).toHaveCount(0)
+  await page.reload()
+  await page.getByRole('button', { name: 'Oct 12, 2026', exact: true }).click()
+  await expect(net).toHaveText('−25.75')
+  await expect(page.getByRole('button', { name: `Edit ${adjustmentName}`, exact: true })).toHaveCount(0)
+  const adjustments = page.locator('.budget-entry-list li').filter({ has: page.locator('.adjustment-body') })
+  await adjustments.filter({ has: page.locator('.entry-amount', { hasText: /^0\.00$/ }) }).getByRole('button').click()
+  await adjustments.filter({ has: page.locator('.entry-amount', { hasText: /^−25\.75$/ }) }).getByRole('button').click()
+  await expect(net).toHaveText('0.00')
+  await adjustments.filter({ has: page.locator('.entry-amount', { hasText: /^−900\.50$/ }) }).getByRole('button').click()
+  await expect(net).toHaveText('+900.50')
+})
+
+test('adjustment backups preserve correction metadata and reject recurring adjustments atomically', async ({ page }) => {
+  await openBudget(page)
+  await importEntries(page, [entry('Opening', { kind: 'income', amountCents: 10000 })])
+  await expect(page.locator('.budget-entry-list li')).toHaveCount(1)
+  await page.getByRole('button', { name: 'New entry', exact: true }).click()
+  await page.getByRole('button', { name: 'Adjustment', exact: true }).click()
+  await page.getByLabel('Actual balance').fill('100')
+  await page.getByRole('button', { name: 'Add', exact: true }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  const downloadPromise = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Export', exact: true }).click()
+  const stream = await (await downloadPromise).createReadStream()
+  const chunks = []
+  for await (const chunk of stream) chunks.push(chunk)
+  const exported = JSON.parse(Buffer.concat(chunks).toString())
+  const correction = exported.entries.find((item) => item.adjustment)
+  expect(correction).toMatchObject({ description: 'Adjustment on Oct 11, 2026', kind: 'income', amountCents: 0, date: TODAY, recurrence: 'once', adjustment: true })
+  await page.getByRole('button', { name: 'Delete Adjustment on Oct 11, 2026', exact: true }).click()
+  await expect(page.locator('.adjustment-body')).toHaveCount(0)
+  await importEntries(page, exported.entries)
+  await expect(page.locator('.adjustment-body')).toHaveCount(1)
+  await expect(page.getByRole('button', { name: 'Edit Adjustment on Oct 11, 2026', exact: true })).toHaveCount(0)
+  await importEntries(page, [entry('Should not save'), { ...correction, recurrence: 'daily' }])
+  await expect(page.getByRole('alert')).toContainText('invalid or missing "recurrence"')
+  await expect(page.getByRole('button', { name: 'Edit Should not save', exact: true })).toHaveCount(0)
+  await importEntries(page, [{ ...correction, disabled: true }])
+  await expect(page.getByRole('alert')).toContainText('invalid or missing "disabled"')
+  await page.reload()
+  await expect(page.locator('.adjustment-body')).toHaveCount(1)
+})
+
+test('adjustments reject balances and differences outside safe cent precision', () => {
+  expect(() => adjustmentValues(Number.MAX_SAFE_INTEGER + 1, 0, TODAY)).toThrow('Enter a valid balance.')
+  expect(() => adjustmentValues(Number.MAX_SAFE_INTEGER, -1, TODAY)).toThrow('Enter a valid balance.')
+  expect(() => adjustmentValues(0, undefined, TODAY)).toThrow('Enter a valid balance.')
+})
+
 test('date switch filters by start date inclusively and occurring entries are highlighted and sorted first', async ({ page }) => {
   await openBudget(page)
   await importEntries(page, [
@@ -221,6 +316,185 @@ test('imports old backups and bare arrays, merges by ID, exports every entry, an
   await expect(page.locator('.budget-entry-list li')).toHaveCount(3)
 })
 
+test('savings levels include exact boundaries, negative balances, and disabled thresholds', () => {
+  for (const [balance, level] of [
+    [-1, 'critical'], [0, 'critical'], [4999, 'critical'],
+    [5000, 'danger'], [9999, 'danger'], [10000, 'warning'], [12499, 'warning'],
+    [12500, 'comfortable'], [14999, 'comfortable'], [15000, 'good'], [19999, 'good'],
+    [20000, 'excellent'], [100000, 'excellent'],
+  ]) expect(balanceLevel(balance, 10000)).toBe(`balance-${level}`)
+  for (const threshold of [null, undefined, 0, -1, '100', NaN, Infinity]) {
+    expect(balanceLevel(10000, threshold)).toBe('')
+    expect(balanceLevel(-1, threshold)).toBe('balance-critical')
+  }
+})
+
+test('savings threshold colors all projected balances, persists, and clears in a compact sheet', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 700 })
+  await openBudget(page)
+  const levels = ['critical', 'danger', 'warning', 'comfortable', 'good', 'excellent']
+  await importEntries(page, [
+    ...[4999, 1, 5000, 2500, 2500, 5000].map((amountCents, index) => entry(`Step ${index}`, {
+      date: `2026-10-${11 + index}`, kind: 'income', amountCents,
+    })),
+    entry('Excluded', { kind: 'income', amountCents: 99999999, disabled: true }),
+  ])
+  await expect(page.locator('.budget-entry-list li')).toHaveCount(7)
+  const net = page.locator('.budget-summary dd').last()
+  await expect(net).toHaveClass('pos')
+  const savingsButton = page.getByRole('button', { name: 'Savings', exact: true })
+  const headingBounds = await page.locator('.entries-heading').boundingBox()
+  const savingsBounds = await savingsButton.boundingBox()
+  expect(savingsBounds.y).toBeGreaterThanOrEqual(headingBounds.y)
+  expect(savingsBounds.y + savingsBounds.height).toBeLessThanOrEqual(headingBounds.y + headingBounds.height)
+  await savingsButton.click()
+  const dialog = page.getByRole('dialog', { name: 'Savings threshold', exact: true })
+  await expect(dialog).toHaveAttribute('data-state', 'open')
+  await expect(dialog.getByLabel('Amount', { exact: true })).toBeFocused()
+  await expect(dialog.locator('input')).toHaveCount(1)
+  await dialog.getByLabel('Amount', { exact: true }).fill('100')
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(savingsButton).toBeFocused()
+  const colors = []
+  for (let index = 0; index < levels.length; index++) {
+    const day = page.getByRole('button', { name: `Oct ${11 + index}, 2026`, exact: true })
+    await expect(day.locator('.day-total')).toHaveClass(`day-total balance-${levels[index]}`)
+    await day.click()
+    await expect(net).toHaveClass(`balance-${levels[index]}`)
+    const color = await net.evaluate((element) => getComputedStyle(element).color)
+    expect(await day.locator('.day-total').evaluate((element) => getComputedStyle(element).color)).toBe(color)
+    colors.push(color)
+  }
+  expect(new Set(colors).size).toBe(6)
+  // Income/expense amounts and daily changes keep their existing meaning and colors.
+  await expect(page.locator('.budget-summary dd').first()).toHaveClass('pos')
+  await expect(page.getByRole('button', { name: 'Oct 16, 2026', exact: true }).locator('.day-delta')).toHaveClass('day-delta pos')
+  await page.getByRole('button', { name: 'Edit Step 0', exact: true }).click()
+  await page.getByRole('dialog').getByLabel('Amount', { exact: true }).fill('75')
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Oct 11, 2026', exact: true }).locator('.day-total')).toHaveClass('day-total balance-danger')
+  await page.getByRole('button', { name: 'Converter', exact: true }).click()
+  await page.getByRole('button', { name: 'Budget', exact: true }).click()
+  await expect(net).toHaveClass('balance-danger')
+  await page.reload()
+  await expect(net).toHaveClass('balance-danger')
+  await savingsButton.click()
+  await expect(dialog.getByLabel('Amount', { exact: true })).toHaveValue('100')
+  await dialog.getByLabel('Amount', { exact: true }).fill('500')
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+  await expect(net).toHaveClass('balance-danger')
+  await savingsButton.click()
+  await dialog.getByRole('button', { name: 'Clear', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(net).toHaveClass('pos')
+  await expect(page.locator('.calendar-day [class*="balance-"]')).toHaveCount(0)
+  await page.reload()
+  await expect(net).toHaveClass('pos')
+  await savingsButton.click()
+  await expect(dialog.getByLabel('Amount', { exact: true })).toHaveValue('')
+  await expect(dialog.getByRole('button', { name: 'Clear', exact: true })).toBeDisabled()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+})
+
+test('savings handles invalid settings, unsafe amounts, and failed persistence without applying changes', async ({ page }) => {
+  await openBudget(page)
+  await page.evaluate((key) => localStorage.setItem(key, 'broken JSON'), SAVINGS_THRESHOLD_KEY)
+  await page.reload()
+  await expect(page.locator('.budget-summary dd').last()).toHaveClass('zero')
+  await page.getByRole('button', { name: 'Savings', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Savings threshold', exact: true })
+  await expect(dialog.getByLabel('Amount', { exact: true })).toHaveValue('')
+  await dialog.getByLabel('Amount', { exact: true }).fill('100000000000000')
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(dialog.getByRole('alert')).toHaveText('Enter a valid threshold.')
+  await page.evaluate((key) => {
+    const original = Storage.prototype.setItem
+    Storage.prototype.setItem = function (name, value) {
+      if (name === key) throw new Error('Storage unavailable')
+      return original.call(this, name, value)
+    }
+  }, SAVINGS_THRESHOLD_KEY)
+  await dialog.getByLabel('Amount', { exact: true }).fill('100')
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(dialog.getByRole('alert')).toHaveText('Could not save threshold. Try again.')
+  await expect(dialog).toHaveAttribute('data-state', 'open')
+  await expect(page.locator('.calendar-day [class*="balance-"]')).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+})
+
+test('calendar amounts retain four significant digits and promote rounded unit boundaries', () => {
+  for (const [cents, expected] of [
+    [0, '0'], [1, '0.01'], [1234, '12.34'], [12345, '123.5'],
+    [123400, '1,234'], [999949, '9,999'], [999950, '10.00K'],
+    [3245100, '32.45K'], [12345600, '123.5K'], [99994900, '999.9K'],
+    [99995000, '1.000M'], [123456789, '1.235M'],
+    [123456789000, '1.235B'], [123456789000000, '1.235T'],
+  ]) {
+    expect(calendarMoney(cents)).toBe(expected)
+    expect(calendarMoney(-cents)).toBe(cents ? `−${expected}` : expected)
+    expect(calendarMoney(cents, true)).toBe(cents ? `+${expected}` : expected)
+  }
+})
+
+test('precise positive and negative calendar balances fit their cells at 320px', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 700 })
+  await openBudget(page)
+  await importEntries(page, [
+    entry('Four digits', { kind: 'income', amountCents: 123400 }),
+    entry('Negative compact', { date: '2026-10-12', amountCents: 3368500 }),
+    entry('Positive compact', { kind: 'income', date: '2026-10-13', amountCents: 6490200 }),
+  ])
+  await expect(page.locator('.budget-entry-list li')).toHaveCount(3)
+  const today = page.getByRole('button', { name: 'Oct 11, 2026', exact: true })
+  const negative = page.getByRole('button', { name: 'Oct 12, 2026', exact: true })
+  const positive = page.getByRole('button', { name: 'Oct 13, 2026', exact: true })
+  await expect(today.locator('.day-total')).toHaveText('1,234')
+  await expect(negative.locator('.day-total')).toHaveText('−32.45K')
+  await expect(positive.locator('.day-total')).toHaveText('32.45K')
+  await expect(negative.locator('.day-total')).toHaveAttribute('title', '−32,451.00')
+  await expect(page.locator('.budget-summary dd').last()).toHaveText('+1,234.00')
+  await expect(negative.locator('.day-total')).toHaveClass('day-total balance-critical')
+  const marker = negative.locator('.day-critical')
+  await expect(marker).toHaveText('!')
+  await expect(page.locator('.calendar-day .day-critical')).toHaveCount(1)
+  await negative.click()
+  await expect(page.locator('.budget-summary dd').last()).toHaveClass('balance-critical')
+  const savingsButton = page.getByRole('button', { name: 'Savings', exact: true })
+  await savingsButton.click()
+  await page.getByRole('dialog').getByLabel('Amount', { exact: true }).fill('100')
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(negative.locator('.day-total')).toHaveClass('day-total balance-critical')
+  await expect(page.locator('.budget-summary dd').last()).toHaveClass('balance-critical')
+  await savingsButton.click()
+  await page.getByRole('button', { name: 'Clear', exact: true }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(marker).toHaveText('!')
+  await expect(negative.locator('.day-total')).toHaveClass('day-total balance-critical')
+  await expect(page.locator('.budget-summary dd').last()).toHaveClass('balance-critical')
+  await page.evaluate(() => document.fonts.ready)
+  const dateBounds = await negative.locator('.day-date').boundingBox()
+  const markerBounds = await marker.boundingBox()
+  const headingBounds = await negative.locator('.day-heading').boundingBox()
+  expect(markerBounds.x).toBeGreaterThanOrEqual(dateBounds.x + dateBounds.width)
+  expect(Math.abs(markerBounds.x + markerBounds.width - headingBounds.x - headingBounds.width)).toBeLessThan(1)
+  expect(Math.abs(markerBounds.y - dateBounds.y)).toBeLessThan(2)
+  expect(await marker.evaluate((element) => getComputedStyle(element).color)).toBe(await negative.locator('.day-total').evaluate((element) => getComputedStyle(element).color))
+  // Measure the actual glyphs: grid bounds alone can miss text that spills over.
+  const overflow = await page.locator('.calendar-day .day-total, .calendar-day .day-delta').evaluateAll((elements) => elements.filter((element) => {
+    const range = document.createRange()
+    range.selectNodeContents(element)
+    return range.getBoundingClientRect().width > element.getBoundingClientRect().width + 0.5
+  }).map((element) => element.textContent))
+  expect(overflow).toEqual([])
+})
+
 test('continuous calendar fits a month at 320px, scrolls independently of entries, and reaches next December', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 700 })
   await openBudget(page)
@@ -262,6 +536,14 @@ test('continuous calendar fits a month at 320px, scrolls independently of entrie
   expect(navBounds.y + navBounds.height).toBe(700)
   // Large amounts must stay inside their cells and the calendar must not pan horizontally.
   expect(await window.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+  // All dates, including longer month names, must fit beside the negative-balance marker.
+  await page.evaluate(() => document.fonts.ready)
+  const overlappingDates = await page.locator('.day-heading').evaluateAll((elements) => elements.filter((element) => {
+    const date = element.querySelector('.day-date').getBoundingClientRect()
+    const marker = element.querySelector('.day-critical').getBoundingClientRect()
+    return date.right > marker.left || marker.right > element.getBoundingClientRect().right + 0.5
+  }).map((element) => element.textContent))
+  expect(overlappingDates).toEqual([])
   await page.getByRole('button', { name: 'New entry', exact: true }).click()
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog')).toHaveCount(0)

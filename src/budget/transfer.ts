@@ -31,7 +31,10 @@ function toEntry(raw: unknown, index: number): Entry {
   if (!RECURRENCES.includes(r.recurrence as Recurrence)) fail('recurrence')
   if (typeof r.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(r.date) ||
     !Number.isFinite(Date.parse(`${r.date}T00:00:00Z`)) || new Date(`${r.date}T00:00:00Z`).toISOString().slice(0, 10) !== r.date) fail('date')
-  if (!Number.isSafeInteger(r.amountCents) || (r.amountCents as number) <= 0) fail('amountCents')
+  if (r.adjustment !== undefined && typeof r.adjustment !== 'boolean') fail('adjustment')
+  if (r.adjustment === true && r.recurrence !== 'once') fail('recurrence')
+  if (r.adjustment === true && r.disabled === true) fail('disabled')
+  if (!Number.isSafeInteger(r.amountCents) || (r.amountCents as number) < (r.adjustment === true ? 0 : 1)) fail('amountCents')
   return {
     id: r.id as string,
     description: typeof r.description === 'string' ? r.description : '',
@@ -39,6 +42,7 @@ function toEntry(raw: unknown, index: number): Entry {
     recurrence: r.recurrence as Recurrence,
     date: r.date as string,
     amountCents: r.amountCents as number,
+    adjustment: r.adjustment === true || undefined,
     disabled: r.disabled === true || undefined,
     createdAt: typeof r.createdAt === 'number' && Number.isFinite(r.createdAt) ? r.createdAt : Date.now() + index,
   }

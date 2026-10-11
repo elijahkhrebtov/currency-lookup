@@ -10,8 +10,10 @@ export interface Entry {
   recurrence: Recurrence
   /** YYYY-MM-DD; for recurring entries, the first day of the series */
   date: string
-  /** Positive amount in cents */
+  /** Positive amount in cents; adjustments may be zero */
   amountCents: number
+  /** Fixed one-time balance correction; only deletion is allowed */
+  adjustment?: boolean
   /** Temporarily excluded from calculations */
   disabled?: boolean
   createdAt: number

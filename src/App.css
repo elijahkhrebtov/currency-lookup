@@ -70,6 +70,12 @@
 .install-help li { padding-left: 3px; margin: 10px 0; }
 .spinning svg { animation: rotate 1.5s linear infinite; }
 @keyframes rotate { to { transform: rotate(360deg); } }
+.app-shell button:enabled:not(.entry-body):not(.entry-delete):active,
+.app-shell a[href]:active,
+.app-shell input:enabled:not(.amount-input):not([type="checkbox"]):not([type="radio"]):active,
+.app-shell select:enabled:active {
+  background-image: var(--pressed-overlay);
+}
 @media (min-width: 700px) {
   .app-shell { padding-inline: 34px; }
 }

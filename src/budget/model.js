@@ -2,7 +2,8 @@ export const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 export const RECURRENCE_LABELS = { once: 'One time', daily: 'Daily', weekly: 'Weekly', fortnightly: 'Every two weeks', monthly: 'Monthly' }
 const DAY_MS = 86400000
 const money = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-const compactMoney = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 })
+const cellMoney = new Intl.NumberFormat('en-US', { maximumSignificantDigits: 4 })
+const compactMoney = new Intl.NumberFormat('en-US', { notation: 'compact', minimumSignificantDigits: 4, maximumSignificantDigits: 4, useGrouping: false })
 
 export function localToday(date = new Date()) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
@@ -19,11 +20,38 @@ export function fmt(cents, signed = false) {
   return cents < 0 ? `−${value}` : signed && cents > 0 ? `+${value}` : value
 }
 export function signedCents(entry) { return entry.kind === 'income' ? entry.amountCents : -entry.amountCents }
+export function adjustmentValues(actualCents, projectedCents, date) {
+  const difference = actualCents - projectedCents
+  if (!Number.isSafeInteger(actualCents) || !Number.isSafeInteger(projectedCents) || !Number.isSafeInteger(difference)) {
+    throw new Error('Enter a valid balance.')
+  }
+  return {
+    adjustment: true,
+    kind: difference < 0 ? 'expense' : 'income',
+    amountCents: Math.abs(difference),
+    description: `Adjustment on ${formatShort(date)}`,
+    recurrence: 'once',
+    date,
+  }
+}
 export function calendarMoney(cents, signed = false) {
-  if (Math.abs(cents) < 100000) return fmt(cents, signed)
-  return `${cents < 0 ? '−' : signed ? '+' : ''}${compactMoney.format(Math.abs(cents) / 100)}`
+  const magnitude = Math.abs(cents) / 100
+  // 9,999.50 rounds to five digits, so switch to compact units at that boundary.
+  const value = magnitude < 9999.5 ? cellMoney.format(magnitude) : compactMoney.format(magnitude)
+  return `${cents < 0 ? '−' : signed && cents > 0 ? '+' : ''}${value}`
 }
 export function tone(cents) { return cents > 0 ? 'pos' : cents < 0 ? 'neg' : 'zero' }
+export function balanceLevel(cents, thresholdCents) {
+  if (cents < 0) return 'balance-critical'
+  if (!Number.isSafeInteger(thresholdCents) || thresholdCents <= 0) return ''
+  const ratio = cents / thresholdCents
+  if (ratio < 0.5) return 'balance-critical'
+  if (ratio < 1) return 'balance-danger'
+  if (ratio < 1.25) return 'balance-warning'
+  if (ratio < 1.5) return 'balance-comfortable'
+  if (ratio < 2) return 'balance-good'
+  return 'balance-excellent'
+}
 
 export function calendarRange(today) {
   // Keep budget-mini's original calculation baseline and extend the horizon each year.
