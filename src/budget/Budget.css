@@ -20,26 +20,25 @@
 .today .day-date { color: var(--accent); font-weight: 800; text-decoration: underline; text-underline-offset: 2px; }
 .day-delta { font-size: 9px; line-height: 1.1; }
 .day-total { font-size: 10px; line-height: 1.1; }
-.budget-toolbar { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px solid #293448; }
-.date-filter { position: relative; display: flex; align-items: center; gap: 9px; min-height: 28px; font-size: 11px; color: #b7c8e5; cursor: pointer; }
+.budget-toolbar { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 44px; border-bottom: 1px solid #293448; }
+.date-filter { position: relative; display: flex; align-items: center; gap: 9px; min-height: 44px; font-size: 11px; color: #b7c8e5; cursor: pointer; }
 .date-filter input { position: absolute; z-index: 1; opacity: 0; width: 34px; height: 24px; margin: 0; cursor: pointer; }
 .switch-track { position: relative; width: 34px; height: 20px; border-radius: 20px; border: 1px solid #42536e; background: #263147; flex: none; }
 .switch-track::after { content: ''; position: absolute; width: 12px; height: 12px; top: 3px; left: 3px; background: #8e9db5; border-radius: 50%; transition: transform .15s; }
 .date-filter input:checked + .switch-track { background: #355682; border-color: #739bda; }
 .date-filter input:checked + .switch-track::after { background: #c6dcff; transform: translateX(14px); }
 .date-filter input:focus-visible + .switch-track { outline: 2px solid var(--accent); outline-offset: 3px; }
-.new-entry-button { position: relative; display: grid; place-items: center; width: 28px; height: 20px; padding: 0; border-radius: 4px; background: transparent; color: var(--accent); }
-.new-entry-button::before { content: ''; position: absolute; inset: -6px -4px; }
+.new-entry-button { display: grid; place-items: center; flex: none; width: 44px; height: 44px; padding: 0; border-radius: 4px; background: transparent; color: var(--accent); }
 .new-entry-button:hover { background: #ffffff08; }
-.budget-entries { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #344b70 transparent; padding: 14px 0 12px; }
+.budget-entries { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; scrollbar-width: thin; scrollbar-color: #344b70 transparent; padding: 4px 12px 12px 0; }
 .budget-entries:focus-visible, .calendar-window:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
 .entries-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
-.entries-heading h2 { font-size: 13px; font-weight: 600; margin: 0; }
+.entries-heading h2 { font-size: 13px; font-weight: 600; margin: 0; padding-left: 8px; }
 .entries-heading h2 span { margin-left: 5px; color: var(--muted); font-weight: 400; font-size: 11px; }
 .transfer-actions { display: flex; gap: 2px; }
 .transfer-actions button { min-height: 28px; background: transparent; color: var(--muted); padding: 0 8px; font-size: 11px; }
 .transfer-actions button:hover { color: var(--accent); }
-.budget-summary { background: #181f2c; border: 1px solid #293448; border-radius: 10px; padding: 9px 11px 10px; margin-bottom: 10px; }
+.budget-summary { background: #181f2c; border-radius: 10px; padding: 9px 11px 10px; margin-bottom: 10px; }
 .summary-date { display: flex; justify-content: space-between; gap: 8px; font-size: 10px; color: var(--muted); margin-bottom: 7px; }
 .budget-summary dl { display: flex; justify-content: space-between; gap: 12px; margin: 0; }
 .budget-summary dl > div { min-width: 0; }
