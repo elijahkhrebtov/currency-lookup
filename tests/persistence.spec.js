@@ -1,4 +1,4 @@
-import { test, expect, store } from './fixtures'
+import { test, expect, store, openConverter } from './fixtures'
 const SETTINGS = 'pocket-currency.settings.v1'
 
 test('login screen reports an invalid key and signs in and out successfully', async ({ page }, testInfo) => {
@@ -19,9 +19,9 @@ test('login screen reports an invalid key and signs in and out successfully', as
   await expect(page.locator('.login-card [role=alert]')).toHaveText('Invalid secret.')
   await page.getByLabel('Secret key').fill('test-only-key')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
-  await expect(page.getByLabel('USD amount')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'New entry', exact: true })).toBeEnabled()
   await page.reload()
-  await expect(page.getByLabel('USD amount')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'New entry', exact: true })).toBeEnabled()
   await page.getByRole('button', { name: 'Sign out', exact: true }).click()
   await expect(page.getByLabel('Secret key')).toHaveValue('')
   await page.getByLabel('Secret key').fill('test-only-key')
@@ -30,13 +30,14 @@ test('login screen reports an invalid key and signs in and out successfully', as
     authenticated = false
     return route.fulfill({ status: 401, json: { error: 'Your session expired. Sign in again.' } })
   })
-  await page.getByRole('button', { name: 'Budget', exact: true }).click()
+  await page.reload()
   await expect(page.getByLabel('Secret key')).toHaveValue('')
 })
 
 test('cached currency choices avoid reads; order and edits sync and recover after clearing cache', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 320, height: 700 })
   await page.goto('/')
+  await openConverter(page)
   await expect(page.getByLabel('USD amount')).toHaveValue('100')
   expect(store(page).currencyReads).toBe(1)
   await page.getByLabel('Move EUR up').click()
@@ -44,10 +45,12 @@ test('cached currency choices avoid reads; order and edits sync and recover afte
   await expect.poll(() => store(page).currencies.currencies[0]).toBe('EUR')
   await expect.poll(() => store(page).currencies.amount).toBe('321.12345678')
   await page.reload()
+  await openConverter(page)
   await expect(page.getByLabel('USD amount')).toHaveValue('321.12345678')
   expect(store(page).currencyReads).toBe(1)
   await page.evaluate(key => localStorage.removeItem(key), SETTINGS)
   await page.reload()
+  await openConverter(page)
   await expect(page.getByLabel('USD amount')).toHaveValue('321.12345678')
   await expect(page.locator('.currency-code').first()).toHaveText('EUR')
   expect(store(page).currencyReads).toBe(2)
@@ -56,6 +59,7 @@ test('cached currency choices avoid reads; order and edits sync and recover afte
 
 test('failed currency sync retains local changes and retries the newest value', async ({ page }) => {
   await page.goto('/')
+  await openConverter(page)
   await expect(page.getByLabel('USD amount')).toBeVisible()
   await page.route('**/api/currencies', route => route.fulfill({ status: 503, json: { error: 'Temporarily unavailable' } }))
   await page.getByLabel('USD amount').fill('77')
@@ -76,7 +80,6 @@ test('budget loads only from the server and shows skeletons without false totals
     return route.fulfill({ json: { entries: [], savingsThreshold: 250000, throughDate: false } })
   })
   await page.goto('/')
-  await page.getByRole('button', { name: 'Budget', exact: true }).click()
   await expect(page.getByLabel('Loading budget')).toBeVisible()
   await expect(page.getByRole('button', { name: 'New entry', exact: true })).toBeDisabled()
   await expect(page.getByRole('button', { name: 'Import', exact: true })).toHaveCount(0)

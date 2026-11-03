@@ -16,7 +16,7 @@ function loadSavingsThreshold() {
   } catch { return null }
 }
 
-export default function Budget({ onSignOut }) {
+export default function Budget() {
   const [today] = useState(localToday)
   const [selectedDate, setSelectedDate] = useState(today)
   const client = useQueryClient()
@@ -102,7 +102,7 @@ export default function Budget({ onSignOut }) {
   }
 
   return <section className={`budget ${loaded ? '' : 'budget-loading'}`} aria-label="Budget" aria-busy={!loaded || busy}>
-    <Calendar months={months} days={days} stats={stats.days} selectedDate={selectedDate} today={today} onSelect={setSelectedDate} savingsThreshold={savingsThreshold} loaded={loaded} onSignOut={onSignOut} />
+    <Calendar months={months} days={days} stats={stats.days} selectedDate={selectedDate} today={today} onSelect={setSelectedDate} savingsThreshold={savingsThreshold} loaded={loaded} />
     <div className="budget-toolbar">
       <label className="date-filter">
         <input type="checkbox" role="switch" checked={throughDate} disabled={!loaded || busy} onChange={(event) => toggleThroughDate(event.target.checked)} />
@@ -158,7 +158,7 @@ function EntryBody({ entry, cumulative, busy, onEdit }) {
   </Tag>
 }
 
-function Calendar({ months, days, stats, selectedDate, today, onSelect, savingsThreshold, loaded, onSignOut }) {
+function Calendar({ months, days, stats, selectedDate, today, onSelect, savingsThreshold, loaded }) {
   const viewport = useRef(null)
   const monthRefs = useRef(new Map())
   const initialMonth = months.findIndex((month) => month.date.slice(0, 7) === selectedDate.slice(0, 7))
@@ -184,7 +184,6 @@ function Calendar({ months, days, stats, selectedDate, today, onSelect, savingsT
   return <section className="budget-calendar" aria-label="Calendar">
     <div className="calendar-controls">
       <div className="calendar-start">
-        <button className="icon-button sign-out" aria-label="Sign out" title="Sign out" onClick={onSignOut}><Icon name="logout" size={16} /></button>
         <button className="today-button" onClick={() => { onSelect(today); scrollToMonth(months.findIndex((month) => month.date.slice(0, 7) === today.slice(0, 7))) }}>Today</button>
       </div>
       <h1>{formatMonth(months[visibleMonth].date)}</h1>

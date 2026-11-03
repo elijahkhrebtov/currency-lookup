@@ -1,4 +1,4 @@
-import { test, expect, seedBudget } from './fixtures'
+import { test, expect, seedBudget, openConverter } from './fixtures'
 import { adjustmentValues, appliesOn, balanceLevel, calculateBudget, calendarDays, calendarMoney, calendarRange, localToday, monthsInRange } from '../src/budget/model'
 
 const TODAY = '2026-10-11'
@@ -8,7 +8,6 @@ const entry = (id, overrides = {}) => ({ id, description: id, date: TODAY, amoun
 async function openBudget(page) {
   await page.clock.setFixedTime(new Date('2026-10-11T12:00:00Z'))
   await page.goto('/')
-  await page.getByRole('button', { name: 'Budget', exact: true }).click()
   await expect(page.getByRole('button', { name: 'New entry', exact: true })).toBeEnabled()
 }
 
@@ -124,7 +123,7 @@ test('recurrences, month ends, leap days, disabled totals, and calendar horizon 
   expect(localToday(date)).toBe(TODAY)
 })
 
-test('opens today, adds for the selected day, edits, disables, deletes and remembers the page', async ({ page }) => {
+test('opens today, adds for the selected day, edits, disables, deletes and loads the budget by default', async ({ page }) => {
   await openBudget(page)
   await expect(page.getByRole('button', { name: 'Oct 11, 2026', exact: true })).toHaveAttribute('aria-pressed', 'true')
   await page.getByRole('button', { name: 'Oct 12, 2026', exact: true }).click()
@@ -154,14 +153,15 @@ test('opens today, adds for the selected day, edits, disables, deletes and remem
   await expect(page.locator('.budget-summary dd').last()).toHaveText('0.00')
   await expect(page.getByRole('button', { name: 'Edit Lunch', exact: true })).toContainText('Σ −30.50')
   await page.reload()
-  await expect(page.getByRole('button', { name: 'Budget', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('region', { name: 'Budget', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Oct 11, 2026', exact: true })).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByLabel('Include Lunch in calculations')).not.toBeChecked()
   await page.getByRole('button', { name: 'Edit Lunch', exact: true }).click()
   await page.getByRole('button', { name: 'Delete series', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Edit Lunch', exact: true })).toHaveCount(0)
-  await page.getByRole('button', { name: 'Converter', exact: true }).click()
+  await openConverter(page)
   await page.reload()
+  await openConverter(page)
   await expect(page.getByLabel('USD amount')).toBeVisible()
 })
 
@@ -313,9 +313,9 @@ test('savings threshold colors all projected balances, persists, and clears in a
   await page.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Oct 11, 2026', exact: true }).locator('.day-total')).toHaveClass('day-total balance-danger')
-  await page.getByRole('button', { name: 'Converter', exact: true }).click()
-  await page.getByRole('button', { name: 'Budget', exact: true }).click()
-  await expect(net).toHaveClass('balance-danger')
+  await openConverter(page)
+  await page.getByRole('button', { name: 'Close sidebar' }).click()
+  await expect(net).toHaveClass('balance-excellent')
   await page.reload()
   await expect(net).toHaveClass('balance-danger')
   await page.getByLabel('Current savings threshold').click()
@@ -464,8 +464,9 @@ test('continuous calendar fits a month at 320px, scrolls independently of entrie
   await page.getByRole('button', { name: 'Today', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Oct 11, 2026', exact: true })).toHaveAttribute('aria-pressed', 'true')
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
-  const navBounds = await page.getByRole('navigation', { name: 'Pages' }).boundingBox()
-  expect(navBounds.y + navBounds.height).toBe(700)
+  await expect(page.getByRole('navigation', { name: 'Pages' })).toHaveCount(0)
+  const mainBounds = await page.getByRole('main').boundingBox()
+  expect(mainBounds.y + mainBounds.height).toBe(692)
   // Large amounts must stay inside their cells and the calendar must not pan horizontally.
   expect(await window.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
   // All dates, including longer month names, must fit beside the negative-balance marker.
@@ -485,7 +486,6 @@ test('continuous calendar fits a month at 320px, scrolls independently of entrie
 test('calendar horizon rolls forward with the current year', async ({ page }) => {
   await page.clock.setFixedTime(new Date('2027-07-14T12:00:00Z'))
   await page.goto('/')
-  await page.getByRole('button', { name: 'Budget', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Jul 14, 2027', exact: true })).toHaveAttribute('aria-pressed', 'true')
   await page.getByRole('button', { name: 'Dec 31, 2028', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Dec 31, 2028', exact: true })).toHaveAttribute('aria-pressed', 'true')

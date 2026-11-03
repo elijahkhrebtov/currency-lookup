@@ -49,3 +49,10 @@ export async function seedBudget(page, entries) {
 export async function rateData(page, rows) {
   return { rates: { USD: 1, ...Object.fromEntries(rows.map(row => [row.quote, row.rate])) }, dates: Object.fromEntries(rows.map(row => [row.quote, row.date])), fetchedAt: await page.evaluate(() => Date.now()) }
 }
+
+export async function openConverter(page) {
+  await page.getByRole('button', { name: 'Open sidebar', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: 'Tools', exact: true })).toBeVisible()
+  await page.getByRole('tab', { name: 'Converter', exact: true }).click()
+  await expect(page.getByRole('tab', { name: 'Converter', exact: true })).toHaveAttribute('aria-selected', 'true')
+}

@@ -7,7 +7,10 @@ Converter & Budget is a personal, mobile-first, dark PWA. Read `README.md` for s
 Use Next.js App Router, React, npm, TanStack Query, Drizzle ORM, and Neon Postgres. Keep `package-lock.json` synchronized with dependencies. Use Node.js 24 or newer.
 
 - `src/app/`: public page shell, metadata, manifest, loading UI, and authenticated API routes.
-- `src/App.jsx`, `src/currency.js`, and the currency hooks: converter UI, calculations, local caching, and server synchronization.
+- `src/App.jsx`: budget-first shell, header, sign out, and PWA installation.
+- `src/components/Sidebar.jsx`: animated tools drawer, swipe gestures, accessible tabs, and focus handling.
+- `src/components/Converter.jsx`, `src/currency.js`, and the currency hooks: converter UI, calculations, local caching, and server synchronization.
+- `src/components/Calculator.jsx` and `src/calculator.js`: button-only calculator UI and pure calculation state transitions.
 - `src/budget/`: budget UI, sheets, calendar, and pure financial calculations.
 - `src/lib/`: validation, HTTP/authentication helpers, repository, and database schema/connection.
 - `src/components/Icon.jsx`: shared icons without hooks; safe in Server and Client Components.
@@ -47,13 +50,31 @@ Budget imports are an administrative seed operation using `--budget-file`. Valid
 
 ## Interface and PWA
 
-Keep compact bottom navigation for Converter and Budget. Sign out is an accessible icon button at the far left of the converter heading and calendar controls, not in bottom navigation. Center the month/year relative to the full calendar width using balanced side columns; Today sits beside sign out and month arrows sit on the right. Keep long month names and controls from overlapping at 320px.
+The budget is the main screen; do not restore the old page tabs or persisted page selection. A separate header has a hamburger on the left and an accessible sign-out icon on the right. Center the month/year relative to the full calendar width using balanced side columns; Today sits on the left and month arrows on the right. Keep long month names and controls from overlapping at 320px.
+
+The hamburger opens a sliding tools sidebar with two bottom tabs, Converter and Calculator. Use `@use-gesture/react` for left-edge swipe opening and swipe-left closing. Preserve vertical scrolling, input editing, nested currency picker dialogs, focus trapping/restoration, Escape/backdrop dismissal, and reduced motion. Escape in a nested picker must close only that picker. Keep bottom tab padding at a compact 4px, without adding bottom safe-area padding there.
+
+Keep the budget and both tools mounted when switching tabs or closing the sidebar, preserving the selected calendar date, converter values, calculator entry, pending operation, and selected tab. Inactive tab panels must be hidden and excluded from keyboard focus. Preserve accessible tab selection, arrow-key navigation, and focus wrapping through visible controls. Currency loading or failures must not block the budget or calculator.
+
+Calculator uses buttons and a text output, with no native input or editable field. Preserve arithmetic, decimals, sign toggle, CE (current entry), C (whole calculation), backspace, repeated equals, and recovery from division by zero or overflow. Operations chain left to right, like a basic calculator; display results at 15 significant digits to avoid floating-point tails. Keep calculator logic pure and do not evaluate expression strings. Calculator state lasts for the current app session and resets on reload; do not add database or local-storage persistence without a product request.
 
 The savings control reads `Threshold:` followed by the current number or `Not set`. Both label and number open the same savings form. Preserve keyboard focus, accessible names, mobile safe areas, independently scrolling calendar/list areas, and bottom-sheet drag/dismiss behavior.
 
 Reserve space with skeletons for loading currency cards, calendar values, summary, and entries. Do not show zero balances or an empty budget as if data had loaded. Disable actions that require data until it arrives; retain existing data during background refreshes and offer retry on failures.
 
 `npm run build` generates the ignored `public/sw.js` from `scripts/service-worker.js` and the current Next.js build assets. Keep this generation step: precaching all public chunks is required for reliable offline converter reloads. Register the worker only in production. Never cache private API responses, budget data, or authenticated page payloads. The root shell must remain public and contain no personal data.
+
+## Phone preview through Windows/WSL
+
+Use the working proxy setup documented in `../cal-track/AGENTS.md`. The verified computer LAN IP is `192.168.1.191` on `192.168.1.0/24`; confirm the current IP before reusing it. The Windows proxy listens on `192.168.1.191:3001` and forwards to WSL `127.0.0.1:3000`. Reuse the existing `Intake-Dev-Proxy-3001-LAN` firewall rule and running `iphlpsvc` service; keep any firewall exception limited to the port and LAN subnet.
+
+The local `.env` sets `DEV_ALLOWED_ORIGINS=192.168.1.191`. Start this repo with `npm run dev -- --port 3000`, listening on `0.0.0.0`, and open `http://192.168.1.191:3001` on the phone. Only one app can own port 3000: inspect listeners and their working directory before replacing any process. Reserve 3100 for temporary production/Playwright checks and leave the requested phone dev server running.
+
+`next.config.ts` reads comma-separated `DEV_ALLOWED_ORIGINS`, using hostnames/IPs only, without a scheme or port. Restart Next after changing it. The browser's host must be allowed even through the proxy: blocked dev assets or `/_next/hmr` can cause endless loading despite HTML returning 200. Verify page rendering and HMR through the proxy. A session GET returning 401 before login is expected. Use dev mode for HTTP LAN preview; production requires HTTPS for Secure session cookies and service workers. Do not migrate, seed, or change personal data just to preview the app.
+
+A saved proxy entry can exist without an active listener even while `iphlpsvc` is running. First check direct Windows access to port 3000, then inspect `Get-NetTCPConnection -LocalPort 3001 -State Listen`. Refresh the existing mapping with `netsh interface portproxy set v4tov4 listenaddress=192.168.1.191 listenport=3001 connectaddress=127.0.0.1 connectport=3000 protocol=tcp` from **Windows PowerShell as Administrator**. If refreshing the entry does not restore connections, run `Restart-Service -Name iphlpsvc` in the administrator session to reload the saved mappings; this restored the proxy in this workspace. Codex tool escalation alone does not confer Windows administrator rights; Windows UAC elevation may still be required.
+
+Inspect Windows settings with PowerShell/netsh as described in the sibling repo. `UtilBindVsockAnyPort: socket failed` from the sandbox means Windows interop is blocked; retry through tool escalation. If the computer's IP changes, update the `.env` origin and Windows proxy/firewall addresses together.
 
 ## Validation and commits
 
@@ -77,6 +98,8 @@ Before a requested commit, review the staged diff, confirm credentials, personal
 
 ## This is NOT the Next.js you know
 
-This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing Next.js code. Heed deprecation notices.
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
 
 <!-- END:nextjs-agent-rules -->

@@ -14,7 +14,6 @@
 .calendar-controls > div { display: flex; align-items: center; }
 .calendar-start { justify-self: start; }
 .calendar-navigation { justify-self: end; }
-.calendar-controls .sign-out { min-height: 44px; }
 .calendar-controls .icon-button { height: 44px; width: 36px; }
 .today-button { background: transparent; color: var(--accent); font-size: 12px; min-height: 44px; padding: 0 6px; }
 .calendar-weekdays { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; font-size: 10px; color: var(--muted); text-align: center; height: 24px; align-items: center; }

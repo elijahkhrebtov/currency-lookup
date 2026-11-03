@@ -22,6 +22,36 @@ npm run build
 npm run start
 ```
 
+## Phone preview through Windows/WSL
+
+This workspace uses the same Windows proxy as `../cal-track`: `http://192.168.1.191:3001` forwards to WSL port `3000`. The existing `Intake-Dev-Proxy-3001-LAN` firewall rule and Windows IP Helper service provide LAN access. Only one app can use this proxy at a time; stop another app on port 3000 before starting this one.
+
+Set the computer's current LAN IPv4 in `.env` and start the development server:
+
+```dotenv
+DEV_ALLOWED_ORIGINS=192.168.1.191
+```
+
+```sh
+npm run dev -- --port 3000
+```
+
+Open `http://192.168.1.191:3001` on a phone connected to the same LAN. Use the computer's current IP if it changes, and update both the Windows proxy/firewall addresses and `.env`. `DEV_ALLOWED_ORIGINS` takes hostnames/IPs without a scheme or port; restart Next.js after changing it. It must allow the browser's host even through the proxy, or HMR and dev assets can be blocked while HTML still returns 200.
+
+If the saved proxy exists but port 3001 has no listener, refresh that entry from **Windows PowerShell as Administrator** (using the current LAN IP):
+
+```powershell
+netsh interface portproxy set v4tov4 listenaddress=192.168.1.191 listenport=3001 connectaddress=127.0.0.1 connectport=3000 protocol=tcp
+```
+
+If it still refuses connections, reload the saved mappings by restarting IP Helper from the same administrator session. This was required in this workspace:
+
+```powershell
+Restart-Service -Name iphlpsvc
+```
+
+Reuse the Windows proxy and LAN-scoped firewall rule documented in `../cal-track/AGENTS.md`; inspect them with `netsh interface portproxy show v4tov4` and `Get-NetFirewallRule -Name Intake-Dev-Proxy-3001-LAN` in Windows PowerShell. Verify both page rendering and the `/_next/hmr` WebSocket. An unauthenticated `/api/auth/session` returning 401 is expected. Use development mode for this HTTP preview: production requires HTTPS for Secure login cookies and service worker support. No migration or seeding is needed to preview the existing account. Keep port 3100 for temporary production/Playwright checks.
+
 ## Login and privacy
 
 Sign in with the secret key. Secrets use salted scrypt hashes. Sessions use random tokens stored as SHA-256 hashes in Postgres, with HttpOnly, SameSite=Lax cookies and Secure cookies in production. Sessions last 400 days and renew after seven days of activity; browser privacy policies can shorten storage. Sign out revokes the current session. Failed logins are rate limited persistently. All data endpoints authenticate and scope personal records to the account; mutation endpoints validate JSON and request origins. Private API responses use `Cache-Control: private, no-store`.
@@ -35,6 +65,8 @@ Sign in with the secret key. Secrets use salted scrypt hashes. Sessions use rand
 - **Loading:** the app shell, currency cards, budget calendar values, summary, and entries reserve space with skeletons. Controls that require budget data stay disabled until it loads; failures offer a retry.
 
 Currency amounts retain their original precision and format with narrow-space thousand separators. Use the up/down controls to change row order. Currency calculations remain available offline after the public application shell and assets are cached. Budget data and authenticated API responses are never stored by the service worker. A local signed-in marker permits the cached converter shell offline; the server always validates authorization when connected.
+
+The budget is the main screen. The header opens a sliding tools sidebar from the left and has the sign-out icon on the right. The sidebar has Converter and Calculator tabs along its bottom. The calculator supports arithmetic, decimals, sign toggle, CE (clear entry), C (clear all), and backspace using buttons, without a native input. Both tools retain their state while switching tabs or closing and reopening the sidebar; calculator state resets on page reload. Open it with the hamburger or a swipe from the left edge; close it with a left swipe, the close button, Escape, or the backdrop. Currency controls, local caching, and database synchronization work as before, and opening tools preserves the current budget view.
 
 ## Database migrations
 

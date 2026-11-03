@@ -1,14 +1,44 @@
-.app-shell { max-width: 560px; margin: 0 auto; padding: max(8px, env(safe-area-inset-top)) 24px 0; height: 100dvh; display: grid; grid-template-rows: minmax(0, 1fr) auto; }
+/* The budget stays mounted while tools slide over it. */
+.app-shell { max-width: 560px; margin: 0 auto; padding: max(8px, env(safe-area-inset-top)) 24px max(8px, env(safe-area-inset-bottom)); height: 100dvh; display: grid; grid-template-rows: auto minmax(0, 1fr); }
+.app-header { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; align-items: center; min-height: 48px; padding-bottom: 4px; margin-bottom: 4px; border-bottom: 1px solid #293448; }
+.app-header .icon-button, .sidebar-heading .icon-button { width: 44px; height: 44px; }
+.app-title { font-family: 'Manrope Variable', sans-serif; font-size: 15px; font-weight: 650; text-align: center; }
 .page-content { min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #344b70 transparent; }
-/* The padding also leaves space when the browser uses overlay scrollbars. */
-.converter-page { scrollbar-gutter: stable; padding-right: 12px; }
 .budget-page { overflow: hidden; }
-.bottom-nav { display: flex; padding: 2px 0 calc(2px + env(safe-area-inset-bottom)); border-top: 1px solid #293448; background: #0e131d; }
-.bottom-nav button { display: flex; flex: 1; align-items: center; justify-content: center; gap: 6px; min-height: 36px; font-size: 11px; color: var(--muted); background: transparent; border-radius: 6px; }
-.bottom-nav button[aria-current="page"] { background: #19283f; color: var(--accent); }
-.install-button { position: fixed; z-index: 10; right: max(16px, env(safe-area-inset-right)); bottom: calc(49px + env(safe-area-inset-bottom)); display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 1px solid #3c5275; border-radius: 50%; background: #19283f; color: var(--accent); box-shadow: 0 3px 12px #0005; }
+.sidebar-edge { position: fixed; z-index: 20; inset: 0 auto 0 0; width: 20px; touch-action: pan-y; }
+.sidebar-dialog { position: fixed; inset: 0; margin: 0; padding: 0; width: 100%; max-width: none; height: 100dvh; max-height: none; border: 0; background: transparent; color: inherit; overflow: hidden; touch-action: pan-y; }
+.sidebar-dialog::backdrop { background: transparent; }
+.sidebar-shade { position: absolute; inset: 0; background: #080d16bb; opacity: 0; }
+.sidebar-panel { position: absolute; inset: 0 auto 0 0; width: min(480px, calc(100% - 24px)); display: grid; grid-template-rows: auto minmax(0, 1fr) auto; padding: max(8px, env(safe-area-inset-top)) 16px 0; background: #0e131d; border-right: 1px solid #293448; box-shadow: 12px 0 48px #0005; transform: translateX(-100%); will-change: transform; }
+.sidebar-heading { display: flex; justify-content: space-between; align-items: center; min-height: 48px; padding-bottom: 4px; margin-bottom: 4px; border-bottom: 1px solid #293448; }
+.sidebar-heading h2 { margin: 0; padding-left: 2px; font-family: 'Manrope Variable', sans-serif; font-size: 15px; font-weight: 650; }
+.sidebar-content { overflow-y: auto; min-height: 0; padding-right: 6px; scrollbar-gutter: stable; scrollbar-width: thin; scrollbar-color: #344b70 transparent; overscroll-behavior-y: contain; }
+.sidebar-panel .source-badge { font-size: 7px; letter-spacing: .5px; padding: 4px; gap: 4px; }
+.sidebar-panel .currency-select { gap: 7px; }
+.sidebar-panel .card-actions { gap: 0; }
+.sidebar-content[hidden] { display: none; }
+.sidebar-tabs { display: flex; gap: 4px; border-top: 1px solid #293448; padding: 4px 0; }
+.sidebar-tabs button { display: flex; flex: 1; align-items: center; justify-content: center; gap: 8px; min-height: 44px; background: transparent; border-radius: 8px; color: var(--muted); font-size: 12px; }
+.sidebar-tabs button[aria-selected="true"] { background: #19283f; color: var(--accent); }
+.calculator-panel { padding: 12px 0; scrollbar-gutter: auto; }
+.calculator { display: flex; flex-direction: column; justify-content: flex-end; gap: 16px; min-height: 100%; font-variant-numeric: tabular-nums; }
+.calculator-screen { padding: 16px 12px; background: #181f2c; border: 1px solid #293448; border-radius: 14px; text-align: right; }
+.calculator-history { min-height: 36px; font-size: 12px; line-height: 1.5; color: var(--muted); overflow-wrap: anywhere; }
+.calculator-display { display: block; min-height: 58px; font-family: 'Manrope Variable', sans-serif; font-size: 40px; line-height: 1.45; font-weight: 500; letter-spacing: -1px; overflow-wrap: anywhere; }
+.calculator-display.long-result { font-size: 26px; letter-spacing: -.5px; }
+.calculator-keypad { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.calculator-key { display: grid; place-items: center; min-height: clamp(44px, 8dvh, 64px); padding: 0; border: 1px solid #293448; border-radius: 12px; background: #181f2c; font-size: 23px; }
+.calculator-key:hover { background: #233148; }
+.calculator-key.utility { color: var(--muted); font-size: 14px; }
+.calculator-key.operator { background: #1c2b43; color: var(--accent); }
+.calculator-key.operator[aria-pressed="true"] { border-color: var(--accent); }
+.calculator-key.equals { background: var(--accent); color: #101824; }
+.calculator-key.equals:hover { background: #aecbff; }
+.converter-error { padding: 16px 0; font-size: 13px; }
+.converter-error button { min-height: 44px; padding: 0 20px; border-radius: 8px; }
+.install-button { position: fixed; z-index: 10; right: max(16px, env(safe-area-inset-right)); bottom: calc(16px + env(safe-area-inset-bottom)); display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 1px solid #3c5275; border-radius: 50%; background: #19283f; color: var(--accent); box-shadow: 0 3px 12px #0005; }
 .install-button:hover { background: #233854; }
-.has-install .converter-page, .has-install .budget-entries { padding-bottom: 56px; }
+.has-install .budget-entries { padding-bottom: 56px; }
 .converter { margin-top: 8px; }
 .section-label { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 10px; letter-spacing: 1.6px; color: #a3b0c7; margin: 0 2px 12px; }
 .section-label > span:last-child { letter-spacing: .8px; font-size: 11px; }
@@ -30,8 +60,6 @@
 .card-actions { gap: 2px; }
 .reorder-button { width: 22px; height: 36px; }
 .reorder-button svg { transform: rotate(90deg); }
-.icon-button.sign-out { flex: none; width: 32px; height: 32px; padding: 0; color: var(--muted); }
-.sign-out:hover { color: var(--accent); }
 .sync-error { color: #e7bd8c; font-size: 11px; margin-bottom: 6px; }
 .sync-error button, .budget-error button { background: transparent; color: var(--accent); text-decoration: underline; padding: 4px; }
 .login-page { min-height: 100dvh; display: grid; place-items: center; padding: 24px; overflow-y: auto; }

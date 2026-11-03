@@ -1,5 +1,8 @@
 export function Icon({ name, size = 20, ...props }) {
   const paths = {
+    calculator: <><rect x="5" y="3" width="14" height="18" rx="2" /><path d="M8 7h8M8 11h1m6 0h1M8 15h1m6 0h1M8 18h1m6 0h1" /></>,
+    backspace: <><path d="M9 5h11v14H9L2 12Z" /><path d="m12 9 5 6m0-6-5 6" /></>,
+    menu: <path d="M4 6h16M4 12h16M4 18h16" />,
     arrows: <><path d="M4 8h14m-4-4 4 4-4 4M20 16H6m4-4-4 4 4 4" /></>,
     down: <path d="m8 10 4 4 4-4" />,
     plus: <path d="M12 5v14M5 12h14" />,
