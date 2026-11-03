@@ -9,11 +9,14 @@
 .budget .balance-good { color: #95d6b3; }
 .budget .balance-excellent { color: #55dfaa; }
 .budget-calendar { flex: none; min-width: 0; }
-.calendar-controls { display: flex; align-items: center; justify-content: space-between; min-height: 44px; gap: 8px; }
-.calendar-controls h1 { font-size: 15px; font-weight: 600; margin: 0; }
+.calendar-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; min-height: 44px; gap: 6px; }
+.calendar-controls h1 { font-size: 15px; font-weight: 600; margin: 0; text-align: center; white-space: nowrap; }
 .calendar-controls > div { display: flex; align-items: center; }
+.calendar-start { justify-self: start; }
+.calendar-navigation { justify-self: end; }
+.calendar-controls .sign-out { min-height: 44px; }
 .calendar-controls .icon-button { height: 44px; width: 36px; }
-.today-button { background: transparent; color: var(--accent); font-size: 12px; min-height: 44px; padding: 0 10px; }
+.today-button { background: transparent; color: var(--accent); font-size: 12px; min-height: 44px; padding: 0 6px; }
 .calendar-weekdays { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; font-size: 10px; color: var(--muted); text-align: center; height: 24px; align-items: center; }
 .calendar-window { --calendar-height: min(342px, calc(50dvh - 78px)); --calendar-row-height: calc((var(--calendar-height) - 15px) / 6); position: relative; height: var(--calendar-height); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; border-radius: 10px; }
 .calendar-window::-webkit-scrollbar { display: none; }
@@ -43,12 +46,17 @@
 .entries-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
 .entries-heading h2 { font-size: 13px; font-weight: 600; margin: 0; padding-left: 8px; }
 .entries-heading h2 span { margin-left: 5px; color: var(--muted); font-weight: 400; font-size: 11px; }
-.transfer-actions { display: flex; gap: 2px; }
-.transfer-actions button { min-height: 28px; background: transparent; color: var(--muted); padding: 0 8px; font-size: 11px; }
-.transfer-actions button:hover { color: var(--accent); }
+.savings-threshold { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; background: transparent; color: var(--muted); padding: 0 8px; font-size: 11px; }
+.savings-threshold:hover { color: var(--accent); }
+.savings-value { font-size: 10px; font-variant-numeric: tabular-nums; }
+.budget-loading .budget-summary dd, .budget-loading .summary-date > span:last-child { color: transparent; background: #34445e80; border-radius: 4px; min-width: 60px; animation: skeleton-pulse 1.5s ease-in-out infinite alternate; }
+.entry-skeletons { display: grid; gap: 8px; }
+.entry-skeletons .skeleton { height: 57px; }
 .budget-summary { background: #181f2c; border-radius: 10px; padding: 9px 11px 10px; margin-bottom: 10px; }
 .summary-date { display: flex; justify-content: space-between; gap: 8px; font-size: 10px; color: var(--muted); margin-bottom: 7px; }
-.budget-summary dl { display: flex; justify-content: space-between; gap: 12px; margin: 0; }
+.budget-summary dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 0; }
+.budget-summary dl > div:nth-child(2) { text-align: center; }
+.budget-summary dl > div:last-child { text-align: right; }
 .budget-summary dl > div { min-width: 0; }
 .budget-summary dt { font-size: 10px; color: var(--muted); margin-bottom: 4px; }
 .budget-summary dd { font-size: 12px; margin: 0; overflow-wrap: anywhere; }
@@ -100,6 +108,9 @@
 .clear-savings-button { background: transparent; color: var(--muted); padding: 0 15px; }
 .save-entry-button { flex: 1; background: #93baff; color: #101824; font-weight: 600; }
 @media (max-width: 370px) {
+  .calendar-controls h1 { font-size: 13px; }
+  .calendar-controls .icon-button { width: 28px; }
+  .calendar-controls .today-button { padding-inline: 6px; }
   .day-delta { font-size: 8px; }
   .sheet-drag-region, .sheet-content { padding-inline: 16px; }
   .form-row { grid-template-columns: 1fr; gap: 15px; }

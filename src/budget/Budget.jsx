@@ -1,13 +1,13 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from '../ui'
 import { writeStorage } from '../currency'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { request, draftId } from '../lib/client'
 import BottomSheet from './BottomSheet'
-import { deleteEntry, getAllEntries, putEntries, putEntry } from './db'
-import { downloadEntries, readEntriesFile } from './transfer'
 import { adjustmentValues, appliesOn, balanceLevel, calculateBudget, calendarDays, calendarMoney, calendarRange, describeSchedule, fmt, formatMonth, formatShort, localToday, monthsInRange, RECURRENCE_LABELS, signedCents, tone, WEEKDAYS } from './model'
-import './Budget.css'
 
 const SAVINGS_THRESHOLD_KEY = 'budget.savings-threshold.v1'
+const EMPTY_ENTRIES = []
 
 function loadSavingsThreshold() {
   try {
@@ -16,17 +16,28 @@ function loadSavingsThreshold() {
   } catch { return null }
 }
 
-export default function Budget() {
+export default function Budget({ onSignOut }) {
   const [today] = useState(localToday)
   const [selectedDate, setSelectedDate] = useState(today)
-  const [entries, setEntries] = useState([])
-  const [loaded, setLoaded] = useState(false)
+  const client = useQueryClient()
+  const [cachedThreshold] = useState(loadSavingsThreshold)
+  const query = useQuery({ queryKey: ['budget'], queryFn: async () => {
+    const data = await request('/api/budget')
+    if (data.settingsInitialized === false && cachedThreshold !== null) {
+      const settings = await request('/api/budget/settings', { method: 'POST', body: { savingsThreshold: cachedThreshold, throughDate: data.throughDate } })
+      return { ...data, ...settings, settingsInitialized: true }
+    }
+    return data
+  }, staleTime: 0, refetchOnMount: 'always' })
+  const entries = query.data?.entries ?? EMPTY_ENTRIES
+  const loaded = Boolean(query.data)
   const [error, setError] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [throughDate, setThroughDate] = useState(false)
   const [sheet, setSheet] = useState(null)
-  const [savingsThreshold, setSavingsThreshold] = useState(loadSavingsThreshold)
-  const fileInput = useRef(null)
+  const [pendingThroughDate, setPendingThroughDate] = useState(null)
+  const savingsThreshold = query.data ? query.data.savingsThreshold : cachedThreshold
+  const throughDate = pendingThroughDate ?? query.data?.throughDate ?? false
+  const mutation = useMutation({ mutationFn: action => action(), scope: { id: 'budget' } })
+  const busy = mutation.isPending
   const { start, calendarStart, end } = useMemo(() => calendarRange(today), [today])
   const months = useMemo(() => monthsInRange(calendarStart, end), [calendarStart, end])
   const days = useMemo(() => calendarDays(calendarStart, end), [calendarStart, end])
@@ -36,74 +47,65 @@ export default function Budget() {
   ), [entries, throughDate, selectedDate])
 
   useEffect(() => {
-    let cancelled = false
-    getAllEntries().then((saved) => {
-      if (!cancelled) { setEntries(saved); setLoaded(true) }
-    }).catch(() => { if (!cancelled) setError('Could not load entries. Reload to retry.') })
-    return () => { cancelled = true }
-  }, [])
+    if (query.data) writeStorage(SAVINGS_THRESHOLD_KEY, query.data.savingsThreshold)
+  }, [query.data])
 
   async function mutate(action, update) {
-    setBusy(true)
     setError('')
     try {
-      await action()
-      setEntries(update)
+      const result = await mutation.mutateAsync(action)
+      client.setQueryData(['budget'], previous => ({ ...previous, entries: update(previous.entries, result) }))
+      await client.invalidateQueries({ queryKey: ['budget'] })
       return true
-    } catch {
-      setError('Could not save entries. Try again.')
+    } catch (error) {
+      setError(error.message || 'Could not save entries. Try again.')
       return false
-    } finally { setBusy(false) }
+    }
   }
 
   async function save(entry) {
-    const saved = await mutate(() => putEntry(entry), (previous) => previous.some((item) => item.id === entry.id)
-      ? previous.map((item) => item.id === entry.id ? entry : item) : [...previous, entry])
+    const saved = await mutate(() => request('/api/budget', { method: 'PUT', body: entry }), (previous, result) => previous.some((item) => item.id === entry.id)
+      ? previous.map((item) => item.id === entry.id ? result : item) : [...previous, result])
     if (saved) closeSheet()
   }
 
   function closeSheet() { setSheet((previous) => previous ? { ...previous, open: false } : null) }
 
-  function saveSavingsThreshold(value) {
-    if (!writeStorage(SAVINGS_THRESHOLD_KEY, value)) {
-      setError('Could not save threshold. Try again.')
-      return
-    }
-    setSavingsThreshold(value)
+  async function saveSettings(settings) {
     setError('')
-    closeSheet()
+    try {
+      const saved = await mutation.mutateAsync(() => request('/api/budget/settings', { method: 'PUT', body: settings }))
+      client.setQueryData(['budget'], previous => ({ ...previous, ...saved, settingsInitialized: true }))
+      writeStorage(SAVINGS_THRESHOLD_KEY, saved.savingsThreshold)
+      return true
+    } catch (error) { setError(error.message); return false }
+  }
+
+  async function saveSavingsThreshold(value) {
+    if (await saveSettings({ savingsThreshold: value, throughDate })) closeSheet()
+  }
+
+  async function toggleThroughDate(value) {
+    setPendingThroughDate(value)
+    await saveSettings({ savingsThreshold, throughDate: value })
+    setPendingThroughDate(null)
   }
 
   async function toggle(entry) {
     const updated = { ...entry, disabled: !entry.disabled }
-    await mutate(() => putEntry(updated), (previous) => previous.map((item) => item.id === entry.id ? updated : item))
+    await mutate(() => request('/api/budget', { method: 'PUT', body: updated }), (previous, result) => previous.map((item) => item.id === entry.id ? result : item))
   }
 
   async function remove(entry) {
-    const removed = await mutate(() => deleteEntry(entry.id), (previous) => previous.filter((item) => item.id !== entry.id))
+    const removed = await mutate(() => request('/api/budget', { method: 'DELETE', body: { id: entry.id } }), (previous) => previous.filter((item) => item.id !== entry.id))
     if (removed) closeSheet()
   }
 
-  async function importFile(file) {
-    setBusy(true)
-    setError('')
-    try {
-      const imported = await readEntriesFile(file)
-      await putEntries(imported)
-      setEntries((previous) => {
-        const byId = new Map(previous.map((entry) => [entry.id, entry]))
-        for (const entry of imported) byId.set(entry.id, entry)
-        return [...byId.values()]
-      })
-    } catch (err) { setError(`Import failed: ${err.message}`) }
-    finally { setBusy(false) }
-  }
-
-  return <section className="budget" aria-label="Budget">
-    <Calendar months={months} days={days} stats={stats.days} selectedDate={selectedDate} today={today} onSelect={setSelectedDate} savingsThreshold={savingsThreshold} />
+  return <section className={`budget ${loaded ? '' : 'budget-loading'}`} aria-label="Budget" aria-busy={!loaded || busy}>
+    <Calendar months={months} days={days} stats={stats.days} selectedDate={selectedDate} today={today} onSelect={setSelectedDate} savingsThreshold={savingsThreshold} loaded={loaded} onSignOut={onSignOut} />
     <div className="budget-toolbar">
       <label className="date-filter">
-        <input type="checkbox" role="switch" checked={throughDate} onChange={(event) => setThroughDate(event.target.checked)} />
+        <input type="checkbox" role="switch" checked={throughDate} disabled={!loaded || busy} onChange={(event) => toggleThroughDate(event.target.checked)} />
         <span className="switch-track" aria-hidden="true" />
         <span>Through {formatShort(selectedDate)}</span>
       </label>
@@ -111,19 +113,15 @@ export default function Budget() {
     </div>
     <section className="budget-entries" aria-label="Entries" tabIndex={0}>
       <div className="entries-heading">
-        <h2>Entries <span>{sorted.length}</span></h2>
-        <div className="transfer-actions">
-          <button disabled={busy} onClick={() => { setError(''); setSheet({ type: 'savings', open: true }) }}>Savings</button>
-          <button disabled={!loaded || busy} onClick={() => fileInput.current.click()}>Import</button>
-          <button disabled={!loaded || busy || !entries.length} onClick={() => downloadEntries(entries)}>Export</button>
-          <input ref={fileInput} aria-label="Import entries" type="file" accept="application/json,.json" hidden onChange={(event) => {
-            const file = event.target.files?.[0]
-            event.target.value = ''
-            if (file) importFile(file)
-          }} />
-        </div>
+        <h2>Entries <span>{loaded ? sorted.length : '—'}</span></h2>
+        <button className="savings-threshold" aria-label="Savings threshold" disabled={!loaded || busy} onClick={() => { setError(''); setSheet({ type: 'savings', open: true }) }}>
+          <span>Threshold:</span>
+          <span className="savings-value" aria-label="Current savings threshold">{savingsThreshold === null ? 'Not set' : fmt(savingsThreshold)}</span>
+        </button>
       </div>
       {error && !sheet && <p className="budget-error" role="alert">{error}</p>}
+      {query.error && <p className="budget-error" role="alert">Could not load budget. <button onClick={() => query.refetch()}>Retry</button></p>}
+      {query.fetchStatus === 'paused' && <p className="budget-error" role="status">Reconnect to load budget.</p>}
       <div className="budget-summary" aria-label={`Summary through ${formatShort(selectedDate)}`}>
         <div className="summary-date"><span>{formatShort(selectedDate)}</span><span className={tone(stats.days.get(selectedDate).delta)} aria-label="Day change">Δ {fmt(stats.days.get(selectedDate).delta, true)}</span></div>
         <dl>
@@ -132,7 +130,8 @@ export default function Budget() {
           <div><dt>Net</dt><dd className={balanceLevel(stats.net, savingsThreshold) || tone(stats.net)}>{fmt(stats.net, true)}</dd></div>
         </dl>
       </div>
-      {!sorted.length && <p className="budget-empty">{loaded ? 'No entries' : 'Loading…'}</p>}
+      {!loaded && <div className="entry-skeletons" aria-label="Loading budget">{[0, 1, 2, 3].map(index => <div key={index} className="skeleton" />)}</div>}
+      {loaded && !sorted.length && <p className="budget-empty">No entries</p>}
       <ul className="budget-entry-list">
         {sorted.map((entry) => <li key={entry.id} className={`${appliesOn(entry, selectedDate) ? 'highlight' : ''} ${entry.disabled ? 'disabled' : ''}`}>
           {!entry.adjustment && <label className="entry-enable">
@@ -159,7 +158,7 @@ function EntryBody({ entry, cumulative, busy, onEdit }) {
   </Tag>
 }
 
-function Calendar({ months, days, stats, selectedDate, today, onSelect, savingsThreshold }) {
+function Calendar({ months, days, stats, selectedDate, today, onSelect, savingsThreshold, loaded, onSignOut }) {
   const viewport = useRef(null)
   const monthRefs = useRef(new Map())
   const initialMonth = months.findIndex((month) => month.date.slice(0, 7) === selectedDate.slice(0, 7))
@@ -184,9 +183,12 @@ function Calendar({ months, days, stats, selectedDate, today, onSelect, savingsT
 
   return <section className="budget-calendar" aria-label="Calendar">
     <div className="calendar-controls">
-      <h1>{formatMonth(months[visibleMonth].date)}</h1>
-      <div>
+      <div className="calendar-start">
+        <button className="icon-button sign-out" aria-label="Sign out" title="Sign out" onClick={onSignOut}><Icon name="logout" size={16} /></button>
         <button className="today-button" onClick={() => { onSelect(today); scrollToMonth(months.findIndex((month) => month.date.slice(0, 7) === today.slice(0, 7))) }}>Today</button>
+      </div>
+      <h1>{formatMonth(months[visibleMonth].date)}</h1>
+      <div className="calendar-navigation">
         <button className="icon-button" aria-label="Previous month" disabled={visibleMonth === 0} onClick={() => scrollToMonth(visibleMonth - 1)}><Icon name="left" size={18} /></button>
         <button className="icon-button" aria-label="Next month" disabled={visibleMonth === months.length - 1} onClick={() => scrollToMonth(visibleMonth + 1)}><Icon name="right" size={18} /></button>
       </div>
@@ -209,10 +211,10 @@ function Calendar({ months, days, stats, selectedDate, today, onSelect, savingsT
           return <button key={day} ref={day.endsWith('-01') ? (node) => { if (node) monthRefs.current.set(day, node); else monthRefs.current.delete(day) } : undefined} className={`calendar-day ${Number(day.slice(5, 7)) % 2 === 0 ? 'alt-month' : ''} ${day === selectedDate ? 'selected' : ''} ${day === today ? 'today' : ''}`} aria-label={formatShort(day)} aria-pressed={day === selectedDate} onClick={() => onSelect(day)}>
             <span className="day-heading">
               <span className="day-date">{formatShort(day).split(',')[0]}</span>
-              {total < 0 && <span className="day-critical balance-critical" aria-hidden="true" title="Negative balance">!</span>}
+              {loaded && total < 0 && <span className="day-critical balance-critical" aria-hidden="true" title="Negative balance">!</span>}
             </span>
-            <span className={`day-delta ${tone(delta)}`} title={fmt(delta, true)}>{active ? calendarMoney(delta, true) : '—'}</span>
-            <span className={`day-total ${balanceLevel(total, savingsThreshold)}`} title={fmt(total)}>{calendarMoney(total)}</span>
+            <span className={`day-delta ${loaded ? tone(delta) : 'skeleton'}`} title={loaded ? fmt(delta, true) : undefined}>{loaded ? active ? calendarMoney(delta, true) : '—' : '\u00a0'}</span>
+            <span className={`day-total ${loaded ? balanceLevel(total, savingsThreshold) : 'skeleton'}`} title={loaded ? fmt(total) : undefined}>{loaded ? calendarMoney(total) : '\u00a0'}</span>
           </button>
         })}</div>
     </div>
@@ -262,13 +264,13 @@ function EntryForm({ editing, initialDate, projectedCents, start, end, onSave, o
       try {
         const values = adjustmentValues(amountCents, projectedCents, initialDate)
         setValidation('')
-        onSave({ id: crypto.randomUUID(), createdAt: Date.now(), ...values })
+        onSave({ id: draftId(), createdAt: Date.now(), ...values })
       } catch (err) { setValidation(err.message) }
       return
     }
     if (!Number.isSafeInteger(amountCents) || amountCents <= 0) { setValidation('Enter a valid amount.'); return }
     setValidation('')
-    onSave({ id: editing?.id ?? crypto.randomUUID(), createdAt: editing?.createdAt ?? Date.now(), disabled: editing?.disabled, description: description.trim(), kind, recurrence, date, amountCents })
+    onSave({ id: editing?.id ?? draftId(), createdAt: editing?.createdAt ?? Date.now(), disabled: editing?.disabled, description: description.trim(), kind, recurrence, date, amountCents })
   }
 
   return <form className="budget-entry-form" onSubmit={submit}>

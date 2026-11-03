@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, seedBudget } from './fixtures'
 import { adjustmentValues, appliesOn, balanceLevel, calculateBudget, calendarDays, calendarMoney, calendarRange, localToday, monthsInRange } from '../src/budget/model'
 
 const TODAY = '2026-10-11'
@@ -7,14 +7,9 @@ const entry = (id, overrides = {}) => ({ id, description: id, date: TODAY, amoun
 
 async function openBudget(page) {
   await page.clock.setFixedTime(new Date('2026-10-11T12:00:00Z'))
-  await page.route('https://api.frankfurter.dev/**', (route) => route.fulfill({ json: [{ base: 'USD', quote: 'EUR', rate: 0.9, date: TODAY }] }))
   await page.goto('/')
   await page.getByRole('button', { name: 'Budget', exact: true }).click()
   await expect(page.getByRole('button', { name: 'New entry', exact: true })).toBeEnabled()
-}
-
-async function importEntries(page, entries, wrapped = true) {
-  await page.getByLabel('Import entries').setInputFiles({ name: 'budget.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(wrapped ? { version: 1, exportedAt: new Date().toISOString(), entries } : entries)) })
 }
 
 async function touchDrag(session, x, y, distance, steps = 10) {
@@ -172,7 +167,7 @@ test('opens today, adds for the selected day, edits, disables, deletes and remem
 
 test('adjustments reconcile the selected day, stay fixed, and can only be deleted', async ({ page }) => {
   await openBudget(page)
-  await importEntries(page, [
+  await seedBudget(page, [
     entry('Opening', { kind: 'income', date: '2026-09-28', amountCents: 100000 }),
     entry('Daily', { date: TODAY, recurrence: 'daily', amountCents: 1000 }),
     entry('Selected day', { date: '2026-10-12', amountCents: 3000 }),
@@ -227,37 +222,6 @@ test('adjustments reconcile the selected day, stay fixed, and can only be delete
   await expect(net).toHaveText('+900.50')
 })
 
-test('adjustment backups preserve correction metadata and reject recurring adjustments atomically', async ({ page }) => {
-  await openBudget(page)
-  await importEntries(page, [entry('Opening', { kind: 'income', amountCents: 10000 })])
-  await expect(page.locator('.budget-entry-list li')).toHaveCount(1)
-  await page.getByRole('button', { name: 'New entry', exact: true }).click()
-  await page.getByRole('button', { name: 'Adjustment', exact: true }).click()
-  await page.getByLabel('Actual balance').fill('100')
-  await page.getByRole('button', { name: 'Add', exact: true }).click()
-  await expect(page.getByRole('dialog')).toHaveCount(0)
-  const downloadPromise = page.waitForEvent('download')
-  await page.getByRole('button', { name: 'Export', exact: true }).click()
-  const stream = await (await downloadPromise).createReadStream()
-  const chunks = []
-  for await (const chunk of stream) chunks.push(chunk)
-  const exported = JSON.parse(Buffer.concat(chunks).toString())
-  const correction = exported.entries.find((item) => item.adjustment)
-  expect(correction).toMatchObject({ description: 'Adjustment on Oct 11, 2026', kind: 'income', amountCents: 0, date: TODAY, recurrence: 'once', adjustment: true })
-  await page.getByRole('button', { name: 'Delete Adjustment on Oct 11, 2026', exact: true }).click()
-  await expect(page.locator('.adjustment-body')).toHaveCount(0)
-  await importEntries(page, exported.entries)
-  await expect(page.locator('.adjustment-body')).toHaveCount(1)
-  await expect(page.getByRole('button', { name: 'Edit Adjustment on Oct 11, 2026', exact: true })).toHaveCount(0)
-  await importEntries(page, [entry('Should not save'), { ...correction, recurrence: 'daily' }])
-  await expect(page.getByRole('alert')).toContainText('invalid or missing "recurrence"')
-  await expect(page.getByRole('button', { name: 'Edit Should not save', exact: true })).toHaveCount(0)
-  await importEntries(page, [{ ...correction, disabled: true }])
-  await expect(page.getByRole('alert')).toContainText('invalid or missing "disabled"')
-  await page.reload()
-  await expect(page.locator('.adjustment-body')).toHaveCount(1)
-})
-
 test('adjustments reject balances and differences outside safe cent precision', () => {
   expect(() => adjustmentValues(Number.MAX_SAFE_INTEGER + 1, 0, TODAY)).toThrow('Enter a valid balance.')
   expect(() => adjustmentValues(Number.MAX_SAFE_INTEGER, -1, TODAY)).toThrow('Enter a valid balance.')
@@ -266,7 +230,7 @@ test('adjustments reject balances and differences outside safe cent precision', 
 
 test('date switch filters by start date inclusively and occurring entries are highlighted and sorted first', async ({ page }) => {
   await openBudget(page)
-  await importEntries(page, [
+  await seedBudget(page, [
     entry('Earlier', { date: '2026-10-01' }),
     entry('Future', { date: '2026-10-20' }),
     entry('Today'),
@@ -290,32 +254,6 @@ test('date switch filters by start date inclusively and occurring entries are hi
   await expect(page.locator('.budget-entry-list li.highlight')).toHaveCount(2)
 })
 
-test('imports old backups and bare arrays, merges by ID, exports every entry, and rejects invalid files atomically', async ({ page }) => {
-  await openBudget(page)
-  await importEntries(page, [entry('Salary', { kind: 'income', amountCents: 500000 }), entry('Future', { date: '2027-12-31' })])
-  await expect(page.locator('.budget-entry-list li')).toHaveCount(2)
-  await importEntries(page, [entry('Salary', { kind: 'income', amountCents: 600000 }), entry('Rent', { recurrence: 'monthly', disabled: true })], false)
-  await expect(page.locator('.budget-entry-list li')).toHaveCount(3)
-  await expect(page.getByRole('button', { name: 'Edit Salary', exact: true })).toContainText('+6,000.00')
-  await page.getByRole('switch').check()
-  await expect(page.locator('.budget-entry-list li')).toHaveCount(2)
-  const downloadPromise = page.waitForEvent('download')
-  await page.getByRole('button', { name: 'Export', exact: true }).click()
-  const download = await downloadPromise
-  const stream = await download.createReadStream()
-  const chunks = []
-  for await (const chunk of stream) chunks.push(chunk)
-  const exported = JSON.parse(Buffer.concat(chunks).toString())
-  expect(exported.version).toBe(1)
-  expect(exported.entries).toHaveLength(3)
-  expect(exported.entries.find((entry) => entry.id === 'Rent').disabled).toBe(true)
-  await importEntries(page, [entry('Good'), entry('Invalid', { date: '2026-02-30' })])
-  await expect(page.getByRole('alert')).toContainText('invalid or missing "date"')
-  await expect(page.getByRole('button', { name: 'Edit Good', exact: true })).toHaveCount(0)
-  await page.reload()
-  await expect(page.locator('.budget-entry-list li')).toHaveCount(3)
-})
-
 test('savings levels include exact boundaries, negative balances, and disabled thresholds', () => {
   for (const [balance, level] of [
     [-1, 'critical'], [0, 'critical'], [4999, 'critical'],
@@ -333,7 +271,7 @@ test('savings threshold colors all projected balances, persists, and clears in a
   await page.setViewportSize({ width: 320, height: 700 })
   await openBudget(page)
   const levels = ['critical', 'danger', 'warning', 'comfortable', 'good', 'excellent']
-  await importEntries(page, [
+  await seedBudget(page, [
     ...[4999, 1, 5000, 2500, 2500, 5000].map((amountCents, index) => entry(`Step ${index}`, {
       date: `2026-10-${11 + index}`, kind: 'income', amountCents,
     })),
@@ -342,7 +280,7 @@ test('savings threshold colors all projected balances, persists, and clears in a
   await expect(page.locator('.budget-entry-list li')).toHaveCount(7)
   const net = page.locator('.budget-summary dd').last()
   await expect(net).toHaveClass('pos')
-  const savingsButton = page.getByRole('button', { name: 'Savings', exact: true })
+  const savingsButton = page.getByRole('button', { name: 'Savings threshold', exact: true })
   const headingBounds = await page.locator('.entries-heading').boundingBox()
   const savingsBounds = await savingsButton.boundingBox()
   expect(savingsBounds.y).toBeGreaterThanOrEqual(headingBounds.y)
@@ -380,7 +318,7 @@ test('savings threshold colors all projected balances, persists, and clears in a
   await expect(net).toHaveClass('balance-danger')
   await page.reload()
   await expect(net).toHaveClass('balance-danger')
-  await savingsButton.click()
+  await page.getByLabel('Current savings threshold').click()
   await expect(dialog.getByLabel('Amount', { exact: true })).toHaveValue('100')
   await dialog.getByLabel('Amount', { exact: true }).fill('500')
   await page.keyboard.press('Escape')
@@ -406,19 +344,13 @@ test('savings handles invalid settings, unsafe amounts, and failed persistence w
   await page.evaluate((key) => localStorage.setItem(key, 'broken JSON'), SAVINGS_THRESHOLD_KEY)
   await page.reload()
   await expect(page.locator('.budget-summary dd').last()).toHaveClass('zero')
-  await page.getByRole('button', { name: 'Savings', exact: true }).click()
+  await page.getByRole('button', { name: 'Savings threshold', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Savings threshold', exact: true })
   await expect(dialog.getByLabel('Amount', { exact: true })).toHaveValue('')
   await dialog.getByLabel('Amount', { exact: true }).fill('100000000000000')
   await dialog.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(dialog.getByRole('alert')).toHaveText('Enter a valid threshold.')
-  await page.evaluate((key) => {
-    const original = Storage.prototype.setItem
-    Storage.prototype.setItem = function (name, value) {
-      if (name === key) throw new Error('Storage unavailable')
-      return original.call(this, name, value)
-    }
-  }, SAVINGS_THRESHOLD_KEY)
+  await page.route('**/api/budget/settings', route => route.fulfill({ status: 503, json: { error: 'Could not save threshold. Try again.' } }))
   await dialog.getByLabel('Amount', { exact: true }).fill('100')
   await dialog.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(dialog.getByRole('alert')).toHaveText('Could not save threshold. Try again.')
@@ -445,7 +377,7 @@ test('calendar amounts retain four significant digits and promote rounded unit b
 test('precise positive and negative calendar balances fit their cells at 320px', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 700 })
   await openBudget(page)
-  await importEntries(page, [
+  await seedBudget(page, [
     entry('Four digits', { kind: 'income', amountCents: 123400 }),
     entry('Negative compact', { date: '2026-10-12', amountCents: 3368500 }),
     entry('Positive compact', { kind: 'income', date: '2026-10-13', amountCents: 6490200 }),
@@ -465,7 +397,7 @@ test('precise positive and negative calendar balances fit their cells at 320px',
   await expect(page.locator('.calendar-day .day-critical')).toHaveCount(1)
   await negative.click()
   await expect(page.locator('.budget-summary dd').last()).toHaveClass('balance-critical')
-  const savingsButton = page.getByRole('button', { name: 'Savings', exact: true })
+  const savingsButton = page.getByRole('button', { name: 'Savings threshold', exact: true })
   await savingsButton.click()
   await page.getByRole('dialog').getByLabel('Amount', { exact: true }).fill('100')
   await page.getByRole('button', { name: 'Save', exact: true }).click()
@@ -498,7 +430,7 @@ test('precise positive and negative calendar balances fit their cells at 320px',
 test('continuous calendar fits a month at 320px, scrolls independently of entries, and reaches next December', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 700 })
   await openBudget(page)
-  await importEntries(page, Array.from({ length: 25 }, (_, i) => entry(`Entry ${i}`, { date: '2026-09-28', amountCents: 999999999 })))
+  await seedBudget(page, Array.from({ length: 25 }, (_, i) => entry(`Entry ${i}`, { date: '2026-09-28', amountCents: 999999999 })))
   await expect(page.locator('.budget-entry-list li')).toHaveCount(25)
   const window = page.getByLabel('Scrollable calendar')
   await expect(page.getByRole('button', { name: /^Sep \d+, 2026$/ })).toHaveCount(0)
@@ -548,47 +480,6 @@ test('continuous calendar fits a month at 320px, scrolls independently of entrie
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'New entry', exact: true })).toBeFocused()
-})
-
-test('existing budget-mini IndexedDB entries are retained on the same origin', async ({ page }) => {
-  await openBudget(page)
-  await page.evaluate(async (saved) => {
-    const db = await new Promise((resolve, reject) => {
-      const request = indexedDB.open('budget', 1)
-      request.onsuccess = () => resolve(request.result)
-      request.onerror = () => reject(request.error)
-    })
-    await new Promise((resolve, reject) => {
-      const tx = db.transaction('entries', 'readwrite')
-      tx.objectStore('entries').put(saved)
-      tx.oncomplete = resolve
-      tx.onerror = () => reject(tx.error)
-    })
-    db.close()
-  }, entry('Existing', { recurrence: 'fortnightly' }))
-  await page.reload()
-  await expect(page.getByRole('button', { name: 'Edit Existing', exact: true })).toContainText('Every other Sun')
-})
-
-test('budget and saved entries work after a service-worker-controlled offline reload', async ({ page, context }) => {
-  await openBudget(page)
-  await importEntries(page, [entry('Offline entry')])
-  await expect(page.locator('.budget-entry-list li')).toHaveCount(1)
-  await page.evaluate(async () => {
-    await navigator.serviceWorker.ready
-    if (!navigator.serviceWorker.controller) await new Promise((resolve) => navigator.serviceWorker.addEventListener('controllerchange', resolve, { once: true }))
-  })
-  await context.setOffline(true)
-  await page.reload()
-  await expect(page.getByRole('button', { name: 'Budget', exact: true })).toHaveAttribute('aria-current', 'page')
-  await page.getByRole('button', { name: 'Edit Offline entry', exact: true }).click()
-  await page.getByRole('dialog').getByLabel('Amount', { exact: true }).fill('25')
-  await page.getByRole('button', { name: 'Save', exact: true }).click()
-  await expect(page.getByRole('button', { name: 'Edit Offline entry', exact: true })).toContainText('−25.00')
-  await page.reload()
-  await expect(page.getByRole('button', { name: 'Edit Offline entry', exact: true })).toContainText('−25.00')
-  await page.getByRole('button', { name: 'Converter', exact: true }).click()
-  await expect(page.getByRole('status')).toHaveText('Offline')
 })
 
 test('calendar horizon rolls forward with the current year', async ({ page }) => {

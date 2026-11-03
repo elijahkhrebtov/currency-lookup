@@ -1,9 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { convert, currencyName, formatAmount, groupAmount, loadSettings, normalizeAmount, SETTINGS_KEY, writeStorage } from './currency'
+import { convert, currencyName, formatAmount, groupAmount, normalizeAmount, writeStorage } from './currency'
+import { useCurrencySettings } from './useCurrencySettings'
+import { AppSkeleton } from './components/Skeleton'
+import { request, clearPrivateData } from './lib/client'
+import { useQueryClient } from '@tanstack/react-query'
 import { useRates } from './useRates'
 import { Icon, Modal } from './ui'
 import Budget from './budget/Budget'
-import './App.css'
 
 const symbols = { USD: '$', EUR: '€', GBP: '£', JPY: '¥', UZS: 'soʻm', AUD: 'A$', CAD: 'C$', CHF: 'Fr', CNY: '¥', INR: '₹', KRW: '₩', RUB: '₽', TRY: '₺', AED: 'د.إ' }
 
@@ -39,21 +42,16 @@ function App() {
   const [page, setPage] = useState(() => {
     try { return JSON.parse(localStorage.getItem('pocket.page.v1')) === 'budget' ? 'budget' : 'converter' } catch { return 'converter' }
   })
-  const [settings, setSettings] = useState(loadSettings)
-  const { currencies, source, amount } = settings
+  const { settings, setSettings, error: settingsError, storageError, syncError, retry } = useCurrencySettings()
+  const client = useQueryClient()
+  const { currencies = [], source, amount } = settings || {}
   const { data, loading, error, online, storageError: rateStorageError, stale, refresh } = useRates()
-  const [storageError, setStorageError] = useState(false)
   const [picker, setPicker] = useState(null)
   const [installPrompt, setInstallPrompt] = useState(null)
   const [installHelp, setInstallHelp] = useState(false)
   const [installed, setInstalled] = useState(() => window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true)
   const available = data ? Object.keys(data.rates).sort() : []
 
-  useEffect(() => {
-    // Persist edits and report failures from browser storage to the UI.
-    // oxlint-disable-next-line react/set-state-in-effect
-    setStorageError(!writeStorage(SETTINGS_KEY, settings))
-  }, [settings])
   useEffect(() => {
     const onPrompt = (event) => { event.preventDefault(); setInstallPrompt(event) }
     const onInstalled = () => { setInstalled(true); setInstallPrompt(null); setInstallHelp(false) }
@@ -102,6 +100,25 @@ function App() {
     setSettings({ currencies: remaining, source: nextSource, amount: nextAmount })
   }
 
+  function moveCurrency(code, offset) {
+    const next = [...currencies]
+    const index = next.indexOf(code)
+    ;[next[index], next[index + offset]] = [next[index + offset], next[index]]
+    setSettings(previous => ({ ...previous, currencies: next }))
+  }
+
+  async function signOut() {
+    try {
+      await request('/api/auth/logout', { method: 'POST' })
+      writeStorage('pocket.signed-in.v1', false)
+      await clearPrivateData(client)
+    } catch { window.alert('Could not sign out. Please try again.') }
+  }
+
+  if (!settings) return settingsError
+    ? <main className="login-page"><div className="login-card"><p role="alert">{settingsError.message}</p><button className="save-entry-button" onClick={retry}>Retry</button></div></main>
+    : <AppSkeleton />
+
   const savingFailed = storageError || rateStorageError
   const rateStatus = !online ? 'Offline' : loading ? 'Updating rates' : error ? data ? 'Update failed · Saved rates' : 'Update failed' : savingFailed ? 'Storage unavailable' : stale ? 'Saved rates' : data ? 'Rates up to date' : 'Rates unavailable'
   const statusError = !loading && online && (error || savingFailed)
@@ -109,11 +126,11 @@ function App() {
 
   return <div className={`app-shell ${installed ? '' : 'has-install'}`}>
     <main className={`page-content ${page}-page`}>
-      {page === 'budget' ? <Budget /> : <>
+      {page === 'budget' ? <Budget onSignOut={signOut} /> : <>
         <section className="converter" aria-label="Currency converter">
-          <div className="section-label"><span>YOUR CURRENCIES</span><span>{currencies.length} <span className="muted">/ 5</span></span></div>
+          <div className="section-label"><button className="icon-button sign-out" aria-label="Sign out" title="Sign out" onClick={signOut}><Icon name="logout" size={16} /></button><span>YOUR CURRENCIES</span><span>{currencies.length} <span className="muted">/ 5</span></span></div>
           <div className="currency-stack">
-            {currencies.map((code) => {
+            {currencies.map((code, index) => {
               const isSource = code === source
               const value = isSource ? amount : formatAmount(convert(amount, source, code, data?.rates), code)
               const unitRate = convert('1', source, code, data?.rates)
@@ -123,7 +140,10 @@ function App() {
                     <span className={`currency-symbol symbol-${code}`}>{symbols[code] || code.slice(0, 2)}</span>
                     <span className="currency-code">{code}</span><Icon name="down" size={16} />
                   </button>
-                  <div className="card-actions">{isSource && <span className="source-badge"><span /> SOURCE</span>}
+                  <div className="card-actions">
+                    <button className="icon-button reorder-button" disabled={index === 0} aria-label={`Move ${code} up`} onClick={() => moveCurrency(code, -1)}><Icon name="left" size={12} /></button>
+                    <button className="icon-button reorder-button" disabled={index === currencies.length - 1} aria-label={`Move ${code} down`} onClick={() => moveCurrency(code, 1)}><Icon name="right" size={12} /></button>
+                    {isSource && <span className="source-badge"><span /> SOURCE</span>}
                     {currencies.length > 1 && <button className="icon-button remove-button" onClick={() => removeCurrency(code)} aria-label={`Remove ${code}`}><Icon name="close" size={15} /></button>}
                   </div>
                 </div>
@@ -138,8 +158,9 @@ function App() {
         </section>
 
         <section className="rates-panel" aria-label="Exchange rate status">
+          {syncError && <div className="sync-error" role="alert">{storageError ? 'Currency changes could not be saved.' : 'Currency changes are saved on this device.'} Sync failed. <button onClick={retry}>Retry</button></div>}
           <div className="rate-status"><span role={statusError ? 'alert' : 'status'} title={error || (savingFailed ? 'Changes may not be saved.' : undefined)}>{rateStatus}</span><button className={`icon-button refresh-button ${loading ? 'spinning' : ''}`} aria-label="Refresh exchange rates" disabled={loading || !online} onClick={() => refresh(true)}><Icon name="refresh" size={16} /></button></div>
-          {refreshedAt && Number.isFinite(refreshedAt.getTime()) && <time className="refresh-date" aria-label="Last refresh" dateTime={refreshedAt.toISOString()}>{refreshedAt.toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })}</time>}
+          <div className="rate-timestamp">{refreshedAt && Number.isFinite(refreshedAt.getTime()) && <time className="refresh-date" aria-label="Last refresh" dateTime={refreshedAt.toISOString()}>{refreshedAt.toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })}</time>}</div>
         </section>
       </>}
     </main>

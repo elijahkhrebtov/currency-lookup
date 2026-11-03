@@ -1,18 +1,18 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, rateData } from './fixtures'
 
-const API = 'https://api.frankfurter.dev/v2/rates?base=USD'
+const API = '**/api/rates'
 const SETTINGS_KEY = 'pocket-currency.settings.v1'
 const RATES_KEY = 'pocket-currency.rates.v1'
 const rates = { EUR: 0.9, GBP: 0.75, JPY: 150, UZS: 12500, CAD: 1.4, AED: 3.67 }
 const rows = Object.entries(rates).map(([quote, rate]) => ({ quote, rate, base: 'USD', date: '2026-10-08' }))
 
 async function mockRates(page) {
-  await page.route(API, (route) => route.fulfill({ json: rows }))
+  await page.route(API, async (route) => route.fulfill({ json: await rateData(page, rows) }))
 }
 
 test('editing any row switches the source and calculates cross rates without another request', async ({ page }) => {
   let requests = 0
-  await page.route(API, (route) => { requests++; return route.fulfill({ json: rows }) })
+  await page.route(API, async (route) => { requests++; return route.fulfill({ json: await rateData(page, rows) }) })
   await page.goto('/')
   await expect(page.getByLabel('EUR amount')).toHaveValue('90.00')
   await expect(page.getByLabel('UZS amount')).toHaveValue('1\u202f250\u202f000.00')
@@ -132,9 +132,9 @@ test('changing the source currency retains its amount; deleting it selects a rem
 test('fresh cached rates are reused and manual refresh retrieves new rates', async ({ page }) => {
   await page.clock.setFixedTime(new Date('2026-10-11T10:30:00Z'))
   let requests = 0
-  await page.route(API, (route) => {
+  await page.route(API, async (route) => {
     requests++
-    return route.fulfill({ json: rows.map((row) => ({ ...row, rate: row.rate * requests })) })
+    return route.fulfill({ json: await rateData(page, rows.map((row) => ({ ...row, rate: row.rate * requests }))) })
   })
   await page.goto('/')
   await expect(page.getByLabel('EUR amount')).toHaveValue('90.00')
@@ -161,7 +161,7 @@ test('expired cache remains usable after a failed refresh and can recover', asyn
   }, { key: RATES_KEY, rates })
   await page.route(API, (route) => route.fulfill({ status: 503 }))
   await page.goto('/')
-  await expect(page.getByRole('alert')).toHaveText('Update failed · Saved rates')
+  await expect(page.locator('[role="alert"]:not(#__next-route-announcer__)')).toHaveText('Update failed · Saved rates')
   const lastRefresh = await page.getByLabel('Last refresh').getAttribute('datetime')
   await page.getByLabel('EUR amount').fill('9')
   await expect(page.getByLabel('USD amount')).toHaveValue('10.00')
@@ -170,7 +170,7 @@ test('expired cache remains usable after a failed refresh and can recover', asyn
   await mockRates(page)
   await page.getByLabel('Refresh exchange rates').click()
   await expect(page.getByRole('status')).toHaveText('Rates up to date')
-  await expect(page.getByRole('alert')).toHaveCount(0)
+  await expect(page.locator('[role="alert"]:not(#__next-route-announcer__)')).toHaveCount(0)
 })
 
 test('first-load failure gives a retry and corrupt settings fall back safely', async ({ page }) => {
@@ -180,7 +180,7 @@ test('first-load failure gives a retry and corrupt settings fall back safely', a
   }, { settings: SETTINGS_KEY, cache: RATES_KEY })
   await page.route(API, (route) => route.fulfill({ json: { invalid: true } }))
   await page.goto('/')
-  await expect(page.getByRole('alert')).toHaveText('Update failed')
+  await expect(page.locator('[role="alert"]:not(#__next-route-announcer__)')).toHaveText('Update failed')
   await expect(page.getByLabel('Last refresh')).toHaveCount(0)
   await expect(page.getByLabel('USD amount')).toHaveValue('100')
   await expect(page.getByLabel('EUR amount')).toHaveValue('')

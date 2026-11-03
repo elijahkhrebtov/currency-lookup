@@ -29,13 +29,13 @@ export function groupAmount(value) {
   return fraction === undefined ? grouped : `${grouped}.${fraction}`
 }
 
-export function loadSettings() {
+export function loadSettings(fallback = true) {
   const saved = readStorage(SETTINGS_KEY)
   if (!saved || !Array.isArray(saved.currencies) || saved.currencies.length < 1 ||
     saved.currencies.length > 5 || new Set(saved.currencies).size !== saved.currencies.length ||
     !saved.currencies.every((code) => typeof code === 'string' && /^[A-Z]{3}$/.test(code)) ||
     !saved.currencies.includes(saved.source) || typeof saved.amount !== 'string' ||
-    normalizeAmount(saved.amount) !== saved.amount) return DEFAULT_SETTINGS
+    normalizeAmount(saved.amount) !== saved.amount) return fallback ? DEFAULT_SETTINGS : null
   return saved
 }
 
