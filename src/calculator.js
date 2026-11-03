@@ -4,6 +4,24 @@ export const initialCalculator = {
 
 export const operationSymbols = { '+': '+', '-': '−', '*': '×', '/': '÷' }
 
+export const CALCULATOR_RESULTS_KEY = 'pocket-calculator.results.v1'
+export const MAX_CALCULATOR_RESULTS = 20
+
+function isCalculatorValue(value) {
+  return typeof value === 'string' && value.length <= 32 && /^-?\d+(?:\.\d*)?(?:e[+-]?\d+)?$/.test(value) && Number.isFinite(Number(value))
+}
+
+export function loadCalculatorResults(saved) {
+  if (!Array.isArray(saved)) return []
+  return saved.filter(item => item && isCalculatorValue(item.value) && typeof item.expression === 'string' && item.expression.length <= 160)
+    .slice(0, MAX_CALCULATOR_RESULTS).map(({ value, expression }) => ({ value, expression }))
+}
+
+export function rememberCalculatorResult(results, state) {
+  if (state.error || !isCalculatorValue(state.entry)) return results
+  return [{ value: state.entry, expression: state.history || `${state.entry} =` }, ...results].slice(0, MAX_CALCULATOR_RESULTS)
+}
+
 function calculate(left, right, operator) {
   if (operator === '/' && right === 0) throw new Error('Cannot divide by zero')
   const value = operator === '+' ? left + right : operator === '-' ? left - right : operator === '*' ? left * right : left / right
@@ -21,11 +39,16 @@ function evaluate(left, right, operator) {
 }
 
 export function calculatorReducer(state, key) {
+  if (typeof key === 'object' && key?.type === 'recall') {
+    if (!isCalculatorValue(key.value)) return state
+    const base = state.error ? initialCalculator : state
+    return { ...base, entry: key.value, waiting: false, result: true, repeat: null, history: base.operator ? base.history : '' }
+  }
   if (key === 'C') return { ...initialCalculator }
   if (key === 'CE') return { ...state, entry: '0', waiting: false, result: false, repeat: null, error: false, history: state.operator ? state.history : '' }
   if (/^[\d.]$/.test(key)) {
     const base = state.error || (state.result && !state.operator) ? initialCalculator : state
-    let entry = base.waiting ? '0' : base.entry
+    let entry = base.waiting || base.result ? '0' : base.entry
     if (key === '.') {
       if (entry.includes('.')) return state
       entry += '.'

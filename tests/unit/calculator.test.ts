@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { calculatorReducer, initialCalculator } from '../../src/calculator.js'
+import { calculatorReducer, initialCalculator, loadCalculatorResults, rememberCalculatorResult } from '../../src/calculator.js'
 
 function press(...keys: string[]) {
   return keys.reduce(calculatorReducer, initialCalculator)
@@ -45,4 +45,46 @@ test('division by zero and overflow show a recoverable error', () => {
   const overflow = press(...Array(15).fill('9'), '*', ...Array(15).fill('9'), ...Array(25).fill('='))
   assert.equal(overflow.entry, 'Error')
   assert.equal(overflow.history, 'Result is too large')
+})
+
+test('recalling a result replaces the current operand while preserving the pending operation', () => {
+  const pending = press('1', '2', '+', '9', '9')
+  const recalled = calculatorReducer(pending, { type: 'recall', value: '-3.5' })
+  assert.equal(recalled.entry, '-3.5')
+  assert.equal(calculatorReducer(recalled, '=').entry, '8.5')
+  const waiting = calculatorReducer(press('8', '*'), { type: 'recall', value: '2.5' })
+  assert.equal(calculatorReducer(waiting, '=').entry, '20')
+  const completed = calculatorReducer(press('2', '+', '3', '='), { type: 'recall', value: '7' })
+  assert.equal(calculatorReducer(completed, '=').entry, '7')
+  const scientific = calculatorReducer(press('1', '+'), { type: 'recall', value: '1e+21' })
+  assert.equal(calculatorReducer(scientific, '2').entry, '2')
+  assert.equal(calculatorReducer(calculatorReducer(scientific, '2'), '=').entry, '3')
+  const recovered = calculatorReducer(press('8', '/', '0', '='), { type: 'recall', value: '0' })
+  assert.equal(recovered.entry, '0')
+  assert.equal(recovered.error, false)
+  assert.equal(calculatorReducer(pending, { type: 'recall', value: 'Infinity' }), pending)
+})
+
+test('recent results keep the newest twenty, including duplicates, and skip errors', () => {
+  let results: { value: string; expression: string }[] = []
+  for (let n = 0; n < 25; n++) results = rememberCalculatorResult(results, press(...String(n), '='))
+  assert.equal(results.length, 20)
+  assert.equal(results[0].value, '24')
+  assert.equal(results[19].value, '5')
+  const duplicate = rememberCalculatorResult(results, press('2', '4', '='))
+  assert.equal(duplicate[0].value, '24')
+  assert.equal(duplicate[1].value, '24')
+  assert.equal(duplicate[0].expression, '24 =')
+  const arithmetic = rememberCalculatorResult([], press('0', '.', '1', '+', '0', '.', '2', '='))
+  assert.deepEqual(arithmetic, [{ value: '0.3', expression: '0.1 + 0.2 =' }])
+  assert.equal(rememberCalculatorResult(results, press('1', '/', '0', '=')), results)
+})
+
+test('cached calculator history rejects invalid data and caps valid results at twenty', () => {
+  assert.deepEqual(loadCalculatorResults(null), [])
+  assert.deepEqual(loadCalculatorResults({ value: '2' }), [])
+  const valid = { value: '-3.5', expression: '−7 ÷ 2 =' }
+  const saved = [null, {}, { value: 'NaN', expression: '' }, { value: '1e999', expression: '' }, { value: '0x10', expression: '' }, { value: '', expression: '' }, { value: '2', expression: 2 }, valid]
+  assert.deepEqual(loadCalculatorResults(saved), [valid])
+  assert.equal(loadCalculatorResults(Array(25).fill(valid)).length, 20)
 })
